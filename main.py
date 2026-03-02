@@ -1,0 +1,182 @@
+import asyncio
+import json
+import logging
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+
+from config import settings
+from models import AnalyzeRequest, SubmitResponse, JobStatusResponse, MoveDetailResponse
+from db import init_db, create_job, get_job, get_queue_depth, get_queue_position
+from katago_engine import KataGoEngine
+from worker import run_worker, register_listener, unregister_listener
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+engine = KataGoEngine(
+    binary=settings.katago_binary,
+    model=settings.katago_model,
+    config=settings.katago_config,
+)
+
+VISITS_PER_MODE = {
+    "quick": settings.visits_quick,
+    "standard": settings.visits_standard,
+    "deep": settings.visits_deep,
+}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    await engine.start()
+    asyncio.create_task(run_worker(engine))
+    yield
+    await engine.stop()
+
+
+app = FastAPI(title="KataGo API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins.split(","),
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
+
+# --- Auth dependency ---
+
+async def require_api_key(x_api_key: str = Header(...)):
+    if x_api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+
+# --- Endpoints ---
+
+@app.get("/health")
+async def health():
+    depth = await get_queue_depth()
+    return {
+        "status": "ok",
+        "katago": "running" if engine.process else "stopped",
+        "queue_depth": depth,
+    }
+
+
+@app.post("/analyze", response_model=SubmitResponse, dependencies=[Depends(require_api_key)])
+async def submit_analysis(req: AnalyzeRequest):
+    depth = await get_queue_depth()
+    if depth >= settings.max_queue_depth:
+        raise HTTPException(status_code=503, detail="Server busy — queue is full. Try again shortly.")
+
+    job_id = await create_job(req.sgf, req.mode.value)
+    position = await get_queue_position(job_id)
+    visits = VISITS_PER_MODE.get(req.mode.value, settings.visits_quick)
+    # Rough estimate: ~0.3s per turn per 32 visits, 200 moves average
+    estimated_seconds = int(position * (200 * visits * 0.01))
+
+    return SubmitResponse(
+        job_id=job_id,
+        status="queued",
+        queue_position=position,
+        estimated_wait_seconds=estimated_seconds,
+    )
+
+
+@app.get("/analyze/{job_id}", dependencies=[Depends(require_api_key)])
+async def get_analysis(job_id: str):
+    job = await get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # If complete or failed, return immediately (no streaming needed)
+    if job["status"] in ("complete", "failed"):
+        return _job_response(job)
+
+    # Otherwise stream progress via SSE
+    return StreamingResponse(
+        _sse_stream(job_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/move/{job_id}/{move_number}", dependencies=[Depends(require_api_key)])
+async def get_move_detail(job_id: str, move_number: int):
+    job = await get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] != "complete":
+        raise HTTPException(status_code=400, detail="Analysis not complete yet")
+
+    result = json.loads(job["result_json"])
+    details = result.get("move_details", {})
+    move_data = details.get(str(move_number))
+
+    if not move_data:
+        raise HTTPException(status_code=404, detail=f"No detail found for move {move_number}")
+
+    win_rates = result["win_rates"]
+    score_leads = result["score_leads"]
+    turn = move_number
+
+    return MoveDetailResponse(
+        move_number=move_number,
+        win_rate_before=win_rates[turn - 1] if turn - 1 < len(win_rates) else 0.5,
+        win_rate_after=win_rates[turn] if turn < len(win_rates) else 0.5,
+        score_lead_before=score_leads[turn - 1] if turn - 1 < len(score_leads) else 0.0,
+        score_lead_after=score_leads[turn] if turn < len(score_leads) else 0.0,
+        score_swing=abs(
+            (score_leads[turn - 1] if turn - 1 < len(score_leads) else 0)
+            - (score_leads[turn] if turn < len(score_leads) else 0)
+        ),
+        best_move=move_data.get("best_move", "pass"),
+        top_moves=move_data.get("top_moves", []),
+        ownership=move_data.get("ownership"),
+    )
+
+
+# --- Helpers ---
+
+def _job_response(job: dict) -> dict:
+    if job["status"] == "failed":
+        return {"job_id": job["job_id"], "status": "failed", "error": job.get("error")}
+
+    result = json.loads(job["result_json"])
+    return {
+        "job_id": job["job_id"],
+        "status": "complete",
+        "progress": 1.0,
+        "win_rates": result["win_rates"],
+        "score_leads": result["score_leads"],
+        "key_moments": result["key_moments"],
+        "summary": result["summary"],
+    }
+
+
+async def _sse_stream(job_id: str):
+    q = register_listener(job_id)
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(q.get(), timeout=30)
+            except asyncio.TimeoutError:
+                # Send a heartbeat to keep the connection alive
+                yield ": heartbeat\n\n"
+                continue
+
+            yield f"data: {json.dumps(data)}\n\n"
+
+            if data.get("status") in ("complete", "failed"):
+                # If complete, send the full result as a final event
+                if data.get("status") == "complete":
+                    job = await get_job(job_id)
+                    if job:
+                        yield f"data: {json.dumps(_job_response(job))}\n\n"
+                break
+    finally:
+        unregister_listener(job_id, q)
