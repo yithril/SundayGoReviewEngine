@@ -79,3 +79,32 @@ class MoveDetailResponse(BaseModel):
     best_move: str
     top_moves: list[dict]
     ownership: Optional[list[float]] = None
+
+
+# --- Coaching evaluate (same moves format as SuggestRequest) ---
+
+class CoachEvaluateRequest(BaseModel):
+    moves: list[list[str]]  # same as /suggest: [["B","D4"], ["W","Q16"]]
+    board_size: int  # 9, 13, or 19
+    komi: float = 6.5
+    player_color: str  # "B" or "W"
+
+
+class TopMove(BaseModel):
+    move: str
+    order: int
+    winrate: float
+    score_lead: float
+    visits: int
+    pv: list[str]
+    prior: float
+    lcb: float
+    score_stdev: float
+
+
+class CoachEvaluateResponse(BaseModel):
+    root: dict  # winrate, score_lead, current_player, visits
+    top_moves: list[TopMove]  # capped at 5
+    ownership: list[float]  # 361 floats, +1=Black -1=White
+    ownership_stdev: list[float]
+    policy: list[float]  # 362 floats

@@ -11,7 +11,17 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from katago_engine import KataGoEngine, KataGoEngineError
 
 from config import settings
-from models import AnalyzeRequest, SubmitResponse, JobStatusResponse, MoveDetailResponse, SuggestRequest, SuggestResponse
+from models import (
+    AnalyzeRequest,
+    SubmitResponse,
+    JobStatusResponse,
+    MoveDetailResponse,
+    SuggestRequest,
+    SuggestResponse,
+    CoachEvaluateRequest,
+    CoachEvaluateResponse,
+    TopMove,
+)
 from db import init_db, create_job, get_job, get_queue_depth, get_queue_position
 from worker import run_worker, register_listener, unregister_listener
 
@@ -207,6 +217,87 @@ async def suggest_move(req: SuggestRequest):
         move=best.get("move", "pass"),
         win_rate=round(black_wr, 4),
         rank=req.rank.value,
+    )
+
+
+COACH_EVALUATE_TIMEOUT_SEC = 3.0
+
+
+@app.post("/coaching/evaluate", dependencies=[Depends(require_api_key)])
+async def coaching_evaluate(req: CoachEvaluateRequest):
+    """
+    Single-position analysis for coaching: root stats, top 5 moves with PV,
+    ownership, ownership_stdev, policy. Uses strong engine. On timeout or
+    KataGo error returns 200 with { "utterance_key": null }.
+    """
+    num_moves = len(req.moves)
+    query = {
+        "id": "coach",
+        "moves": req.moves,
+        "rules": "tromp-taylor",
+        "komi": req.komi,
+        "boardXSize": req.board_size,
+        "boardYSize": req.board_size,
+        "analyzeTurns": [num_moves],
+        "maxVisits": 150,
+        "analysisPVLen": 8,
+        "includeOwnership": True,
+        "includeOwnershipStdev": True,
+        "includePolicy": True,
+        "includeMovesOwnership": False,
+        "includePVVisits": False,
+        "includeNoResultValue": False,
+    }
+    try:
+        responses = await asyncio.wait_for(
+            engine_slow.analyze(query, num_turns=1),
+            timeout=COACH_EVALUATE_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("coaching/evaluate: KataGo call timed out after %s s", COACH_EVALUATE_TIMEOUT_SEC)
+        return JSONResponse(status_code=200, content={"utterance_key": None})
+    except KataGoEngineError as e:
+        logger.warning("coaching/evaluate: KataGo error: %s", e)
+        return JSONResponse(status_code=200, content={"utterance_key": None})
+
+    resp = responses.get(num_moves, {})
+    move_infos = resp.get("moveInfos", [])
+    root_info = resp.get("rootInfo", {})
+
+    # ownership: +1.0 = Black, -1.0 = White, row-major
+    ownership = resp.get("ownership") or []
+    ownership_stdev = resp.get("ownershipStdev") or []
+    policy = resp.get("policy") or []
+
+    root = {
+        "winrate": round(root_info.get("winrate", 0.5), 4),
+        "score_lead": round(root_info.get("scoreLead", 0.0), 2),
+        "current_player": root_info.get("currentPlayer", "B"),
+        "visits": root_info.get("visits", 0),
+    }
+
+    top_moves: list[TopMove] = []
+    for m in move_infos[:5]:
+        top_moves.append(
+            TopMove(
+                move=m.get("move", "pass"),
+                order=m.get("order", len(top_moves)),
+                winrate=round(m.get("winrate", 0.0), 4),
+                score_lead=round(m.get("scoreLead", 0.0), 2),
+                visits=m.get("visits", 0),
+                pv=m.get("pv", []),
+                prior=round(m.get("prior", 0.0), 4),
+                lcb=round(m.get("lcb", 0.0), 4),
+                score_stdev=round(m.get("scoreStdev", 0.0), 2),
+            )
+        )
+
+    return CoachEvaluateResponse(
+        root=root,
+        top_moves=top_moves,
+        ownership=ownership,
+        ownership_stdev=ownership_stdev,
+        policy=policy,
     )
 
 
