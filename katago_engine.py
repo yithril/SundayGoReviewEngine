@@ -74,6 +74,14 @@ class KataGoEngine:
             logger.exception("Reader loop failed: %s", e)
             self._signal_dead()
 
+    def status(self) -> str:
+        """Return 'running', 'dead', or 'stopped' for health checks."""
+        if not self.process:
+            return "stopped"
+        if self._dead:
+            return "dead"
+        return "running"
+
     async def is_available(self) -> bool:
         """Return True if the engine can accept a new request without waiting."""
         if self._dead:

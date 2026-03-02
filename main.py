@@ -93,8 +93,8 @@ async def health():
     depth = await get_queue_depth()
     return {
         "status": "ok",
-        "katago_fast": "running" if engine_fast.process else "stopped",
-        "katago_slow": "running" if engine_slow.process else "stopped",
+        "katago_fast": engine_fast.status(),
+        "katago_slow": engine_slow.status(),
         "queue_depth": depth,
     }
 
@@ -192,8 +192,11 @@ async def suggest_move(req: SuggestRequest):
         "boardYSize": req.board_size,
         "analyzeTurns": [num_moves],    # only the current position
         "maxVisits": 50,                # fast — enough for rank emulation
-        "humanSLProfile": rank_profile,
         "includeOwnership": False,
+        "overrideSettings": {
+            "humanSLProfile": rank_profile,
+            "ignorePreRootHistory": False,
+        },
     }
 
     responses = await engine_fast.analyze(query, num_turns=1)
