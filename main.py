@@ -174,7 +174,9 @@ async def get_move_detail(job_id: str, move_number: int):
 
 @app.post("/suggest", response_model=SuggestResponse, dependencies=[Depends(require_api_key)])
 async def suggest_move(req: SuggestRequest):
-    if not await engine_fast.is_available():
+    available = await engine_fast.is_available()
+    logger.info("suggest: is_available=%s", available)
+    if not available:
         raise HTTPException(
             status_code=503,
             detail="Bot engine is busy. Retry shortly.",
@@ -198,8 +200,11 @@ async def suggest_move(req: SuggestRequest):
             "ignorePreRootHistory": False,
         },
     }
+    logger.info("suggest: query_id=%s num_moves=%s rank=%s", query["id"], num_moves, req.rank.value)
 
+    logger.info("suggest: entering engine_fast.analyze")
     responses = await engine_fast.analyze(query, num_turns=1)
+    logger.info("suggest: engine_fast.analyze returned")
     resp = responses.get(num_moves, {})
     move_infos = resp.get("moveInfos", [])
     best = move_infos[0] if move_infos else {}
