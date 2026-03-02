@@ -13,14 +13,13 @@ class KataGoEngineError(RuntimeError):
 
 
 class KataGoEngine:
-    def __init__(self, binary: str, model: str, config: str, max_concurrent: int = 4):
+    def __init__(self, binary: str, model: str, config: str):
         self.binary = binary
         self.model = model
         self.config = config
-        self.max_concurrent = max_concurrent
         self.process: Optional[asyncio.subprocess.Process] = None
-        self._concurrency_limit = asyncio.Semaphore(max_concurrent)
-        self._pending: dict[str, asyncio.Queue] = {}
+        self._analyze_lock = asyncio.Lock()
+        self._current_queue: Optional[asyncio.Queue] = None
         self._reader_task: Optional[asyncio.Task] = None
         self._dead = False
 
@@ -36,14 +35,14 @@ class KataGoEngine:
             stderr=asyncio.subprocess.DEVNULL,
         )
         self._dead = False
-        self._pending = {}
+        self._current_queue = None
         self._reader_task = asyncio.create_task(self._read_loop())
         # Give KataGo time to load the model before accepting requests
         await asyncio.sleep(5)
         logger.info("KataGo ready")
 
     async def _read_loop(self):
-        """Background task: read KataGo stdout and route responses by id."""
+        """Background task: read KataGo stdout and put responses into the current request's queue."""
         try:
             while self.process and self.process.stdout:
                 raw = await self.process.stdout.readline()
@@ -62,21 +61,8 @@ class KataGoEngine:
                     logger.warning("KataGo sent malformed JSON, skipping: %s", e)
                     continue
 
-                query_id = resp.get("id")
-                has_turn = "turnNumber" in resp
-                has_error = "error" in resp
-                logger.info("read_loop: parsed id=%r turnNumber=%s error=%s", query_id, has_turn, has_error)
-
-                if query_id is None:
-                    logger.warning("KataGo response missing 'id', skipping")
-                    continue
-
-                q = self._pending.get(query_id)
-                if q is not None:
-                    logger.info("read_loop: routing response to pending query_id=%r", query_id)
-                    await q.put(resp)
-                else:
-                    logger.warning("KataGo response for unknown id %r, skipping", query_id)
+                if self._current_queue is not None:
+                    await self._current_queue.put(resp)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -91,26 +77,12 @@ class KataGoEngine:
             return "dead"
         return "running"
 
-    async def is_available(self) -> bool:
-        """Return True if the engine can accept a new request without waiting."""
-        if self._dead:
-            logger.info("is_available: False (engine dead)")
-            return False
-        try:
-            await asyncio.wait_for(self._concurrency_limit.acquire(), timeout=0)
-            self._concurrency_limit.release()
-            logger.info("is_available: True")
-            return True
-        except asyncio.TimeoutError:
-            logger.info("is_available: False (semaphore full)")
-            return False
-
     def _signal_dead(self):
-        """Mark engine dead and wake all pending callers so they fail fast."""
+        """Mark engine dead and wake the pending caller so it fails fast."""
         self._dead = True
-        for q in self._pending.values():
+        if self._current_queue is not None:
             try:
-                q.put_nowait(None)
+                self._current_queue.put_nowait(None)
             except asyncio.QueueFull:
                 pass
 
@@ -133,12 +105,12 @@ class KataGoEngine:
         query_id = query["id"]
         q: asyncio.Queue = asyncio.Queue()
 
-        async with self._concurrency_limit:
-            logger.info("analyze: semaphore acquired query_id=%r num_turns=%s", query_id, num_turns)
+        async with self._analyze_lock:
+            logger.info("analyze: lock acquired query_id=%r num_turns=%s", query_id, num_turns)
             if self._dead:
                 raise KataGoEngineError("KataGo engine is not available")
 
-            self._pending[query_id] = q
+            self._current_queue = q
             try:
                 line = json.dumps(query) + "\n"
                 self.process.stdin.write(line.encode())
@@ -165,7 +137,7 @@ class KataGoEngine:
                 logger.info("analyze: returning responses for query_id=%r", query_id)
                 return responses
             finally:
-                self._pending.pop(query_id, None)
+                self._current_queue = None
 
     async def stop(self):
         if self._reader_task and not self._reader_task.done():

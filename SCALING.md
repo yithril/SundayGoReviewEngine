@@ -27,6 +27,5 @@ The rank system (`RANKS.md`) already limits bot strength via `humanSLProfile`, s
 
 ## Other Settings
 
-- **`KATAGO_MAX_CONCURRENT`**: Limits in-flight analyses per engine. Default 4. Keep ≤ 2× `numSearchThreads` in your KataGo config.
 - **`MAX_QUEUE_DEPTH`**: Analysis jobs only. Raised to 30 by default; users can wait for background analysis.
 - **`numSearchThreads`** (in `analysis.cfg`): KataGo’s internal parallelism. On 2 CPUs, use 1–2 per engine.

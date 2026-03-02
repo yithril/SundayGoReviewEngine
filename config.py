@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     katago_config: str = "/opt/katago/analysis.cfg"
     katago_config_fast: str | None = None  # for /suggest; falls back to katago_config
     katago_config_slow: str | None = None  # for /analyze worker; falls back to katago_config
-    katago_max_concurrent: int = 4
     max_queue_depth: int = 30
     visits_quick: int = 32
     visits_standard: int = 100

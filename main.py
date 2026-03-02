@@ -24,7 +24,6 @@ def _engine_fast() -> KataGoEngine:
         binary=settings.katago_binary,
         model=settings.katago_human_model,
         config=config,
-        max_concurrent=settings.katago_max_concurrent,
     )
 
 
@@ -34,7 +33,6 @@ def _engine_slow() -> KataGoEngine:
         binary=settings.katago_binary,
         model=settings.katago_model,
         config=config,
-        max_concurrent=settings.katago_max_concurrent,
     )
 
 
@@ -174,14 +172,6 @@ async def get_move_detail(job_id: str, move_number: int):
 
 @app.post("/suggest", response_model=SuggestResponse, dependencies=[Depends(require_api_key)])
 async def suggest_move(req: SuggestRequest):
-    available = await engine_fast.is_available()
-    logger.info("suggest: is_available=%s", available)
-    if not available:
-        raise HTTPException(
-            status_code=503,
-            detail="Bot engine is busy. Retry shortly.",
-            headers={"Retry-After": "5"},
-        )
     rank_profile = f"rank_{req.rank.value}"  # e.g. "rank_7k"
     num_moves = len(req.moves)
 
