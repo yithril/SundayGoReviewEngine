@@ -144,7 +144,11 @@ class KataGoEngine:
             except asyncio.CancelledError:
                 pass
         if self.process:
-            self.process.terminate()
-            await self.process.wait()
+            try:
+                if self.process.returncode is None:
+                    self.process.terminate()
+                    await self.process.wait()
+            except ProcessLookupError:
+                pass  # process already exited (e.g. during restart)
             logger.info("KataGo stopped")
         self._dead = True
