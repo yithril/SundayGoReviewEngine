@@ -1,14 +1,15 @@
 import asyncio
 import json
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from config import settings
-from models import AnalyzeRequest, SubmitResponse, JobStatusResponse, MoveDetailResponse
+from models import AnalyzeRequest, SubmitResponse, JobStatusResponse, MoveDetailResponse, SuggestRequest, SuggestResponse
 from db import init_db, create_job, get_job, get_queue_depth, get_queue_position
 from katago_engine import KataGoEngine
 from worker import run_worker, register_listener, unregister_listener
@@ -137,6 +138,40 @@ async def get_move_detail(job_id: str, move_number: int):
         best_move=move_data.get("best_move", "pass"),
         top_moves=move_data.get("top_moves", []),
         ownership=move_data.get("ownership"),
+    )
+
+
+@app.post("/suggest", response_model=SuggestResponse, dependencies=[Depends(require_api_key)])
+async def suggest_move(req: SuggestRequest):
+    rank_profile = f"rank_{req.rank.value}"  # e.g. "rank_7k"
+    num_moves = len(req.moves)
+
+    query = {
+        "id": f"suggest_{uuid.uuid4().hex[:8]}",
+        "moves": req.moves,
+        "rules": "chinese",
+        "komi": req.komi,
+        "boardXSize": req.board_size,
+        "boardYSize": req.board_size,
+        "analyzeTurns": [num_moves],    # only the current position
+        "maxVisits": 50,                # fast — enough for rank emulation
+        "humanSLProfile": rank_profile,
+        "includeOwnership": False,
+    }
+
+    responses = await engine.analyze(query, num_turns=1)
+    resp = responses.get(num_moves, {})
+    move_infos = resp.get("moveInfos", [])
+    best = move_infos[0] if move_infos else {}
+
+    is_black_turn = (num_moves % 2 == 0)
+    raw_wr = resp.get("rootInfo", {}).get("winrate", 0.5)
+    black_wr = raw_wr if is_black_turn else 1.0 - raw_wr
+
+    return SuggestResponse(
+        move=best.get("move", "pass"),
+        win_rate=round(black_wr, 4),
+        rank=req.rank.value,
     )
 
 

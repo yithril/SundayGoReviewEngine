@@ -9,6 +9,43 @@ class AnalysisMode(str, Enum):
     deep = "deep"
 
 
+class Rank(str, Enum):
+    k20 = "20k"
+    k15 = "15k"
+    k10 = "10k"
+    k9  = "9k"
+    k8  = "8k"
+    k7  = "7k"
+    k6  = "6k"
+    k5  = "5k"
+    k4  = "4k"
+    k3  = "3k"
+    k2  = "2k"
+    k1  = "1k"
+    d1  = "1d"
+    d2  = "2d"
+    d3  = "3d"
+    d4  = "4d"
+    d5  = "5d"
+    d6  = "6d"
+    d7  = "7d"
+    d8  = "8d"
+    d9  = "9d"
+
+
+class SuggestRequest(BaseModel):
+    moves: list[list[str]]  # e.g. [["B","D4"], ["W","Q16"]]
+    rank: Rank
+    board_size: int = 19    # 9, 13, or 19
+    komi: float = 6.5
+
+
+class SuggestResponse(BaseModel):
+    move: str       # e.g. "R16" or "pass"
+    win_rate: float # from Black's perspective
+    rank: str       # echoed back
+
+
 class AnalyzeRequest(BaseModel):
     sgf: str
     mode: AnalysisMode = AnalysisMode.quick
