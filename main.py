@@ -6,22 +6,40 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from katago_engine import KataGoEngine, KataGoEngineError
 
 from config import settings
 from models import AnalyzeRequest, SubmitResponse, JobStatusResponse, MoveDetailResponse, SuggestRequest, SuggestResponse
 from db import init_db, create_job, get_job, get_queue_depth, get_queue_position
-from katago_engine import KataGoEngine
 from worker import run_worker, register_listener, unregister_listener
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-engine = KataGoEngine(
-    binary=settings.katago_binary,
-    model=settings.katago_model,
-    config=settings.katago_config,
-)
+def _engine_fast() -> KataGoEngine:
+    config = settings.katago_config_fast or settings.katago_config
+    return KataGoEngine(
+        binary=settings.katago_binary,
+        model=settings.katago_human_model,
+        config=config,
+        max_concurrent=settings.katago_max_concurrent,
+    )
+
+
+def _engine_slow() -> KataGoEngine:
+    config = settings.katago_config_slow or settings.katago_config
+    return KataGoEngine(
+        binary=settings.katago_binary,
+        model=settings.katago_model,
+        config=config,
+        max_concurrent=settings.katago_max_concurrent,
+    )
+
+
+engine_fast = _engine_fast()
+engine_slow = _engine_slow()
 
 VISITS_PER_MODE = {
     "quick": settings.visits_quick,
@@ -33,13 +51,25 @@ VISITS_PER_MODE = {
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    await engine.start()
-    asyncio.create_task(run_worker(engine))
+    await engine_fast.start()
+    await engine_slow.start()
+    asyncio.create_task(run_worker(engine_slow))
     yield
-    await engine.stop()
+    await engine_fast.stop()
+    await engine_slow.stop()
 
 
 app = FastAPI(title="KataGo API", lifespan=lifespan)
+
+
+@app.exception_handler(KataGoEngineError)
+async def katago_engine_error_handler(request: Request, exc: KataGoEngineError):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": str(exc)},
+        headers={"Retry-After": "10"},
+    )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,7 +93,8 @@ async def health():
     depth = await get_queue_depth()
     return {
         "status": "ok",
-        "katago": "running" if engine.process else "stopped",
+        "katago_fast": "running" if engine_fast.process else "stopped",
+        "katago_slow": "running" if engine_slow.process else "stopped",
         "queue_depth": depth,
     }
 
@@ -77,8 +108,8 @@ async def submit_analysis(req: AnalyzeRequest):
     job_id = await create_job(req.sgf, req.mode.value)
     position = await get_queue_position(job_id)
     visits = VISITS_PER_MODE.get(req.mode.value, settings.visits_quick)
-    # Rough estimate: ~0.3s per turn per 32 visits, 200 moves average
-    estimated_seconds = int(position * (200 * visits * 0.01))
+    # ~0.3s per turn per 32 visits, 200 moves average
+    estimated_seconds = int(position * 200 * (visits / 32) * 0.3)
 
     return SubmitResponse(
         job_id=job_id,
@@ -143,6 +174,12 @@ async def get_move_detail(job_id: str, move_number: int):
 
 @app.post("/suggest", response_model=SuggestResponse, dependencies=[Depends(require_api_key)])
 async def suggest_move(req: SuggestRequest):
+    if not await engine_fast.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Bot engine is busy. Retry shortly.",
+            headers={"Retry-After": "5"},
+        )
     rank_profile = f"rank_{req.rank.value}"  # e.g. "rank_7k"
     num_moves = len(req.moves)
 
@@ -159,7 +196,7 @@ async def suggest_move(req: SuggestRequest):
         "includeOwnership": False,
     }
 
-    responses = await engine.analyze(query, num_turns=1)
+    responses = await engine_fast.analyze(query, num_turns=1)
     resp = responses.get(num_moves, {})
     move_infos = resp.get("moveInfos", [])
     best = move_infos[0] if move_infos else {}
