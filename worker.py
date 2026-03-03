@@ -154,7 +154,7 @@ async def run_worker(engine: KataGoEngine):
             query = {
                 "id": job_id,
                 "moves": moves,
-                "rules": "chinese",
+                "rules": "japanese",
                 "komi": game["komi"],
                 "boardXSize": game["board_size"],
                 "boardYSize": game["board_size"],

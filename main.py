@@ -188,7 +188,7 @@ async def suggest_move(req: SuggestRequest):
     query = {
         "id": f"suggest_{uuid.uuid4().hex[:8]}",
         "moves": req.moves,
-        "rules": "chinese",
+        "rules": "japanese",
         "komi": req.komi,
         "boardXSize": req.board_size,
         "boardYSize": req.board_size,
@@ -234,7 +234,7 @@ async def coaching_evaluate(req: CoachEvaluateRequest):
     query = {
         "id": "coach",
         "moves": req.moves,
-        "rules": "tromp-taylor",
+        "rules": "japanese",
         "komi": req.komi,
         "boardXSize": req.board_size,
         "boardYSize": req.board_size,
