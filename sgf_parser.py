@@ -9,12 +9,14 @@ def sgf_coord_to_katago(row: int, col: int, board_size: int) -> str:
     return f"{COLS[col]}{board_size - row}"
 
 
-def parse_sgf(sgf_string: str) -> dict:
+def parse_sgf(sgf_string: str | bytes) -> dict:
     """
     Parse an SGF string and return the data KataGo needs:
       board_size, komi, and a list of moves as [["B", "D4"], ["W", "Q16"], ...]
     """
-    game = sgfmill.sgf.Sgf_game.from_string(sgf_string.encode())
+    if isinstance(sgf_string, bytes):
+        sgf_string = sgf_string.decode("utf-8", errors="replace")
+    game = sgfmill.sgf.Sgf_game.from_string(sgf_string)
     board_size = game.get_size()
     komi = game.get_komi()
     if komi is None:

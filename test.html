@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Go Review Engine — Test</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #f8fafc;
+      margin-bottom: 0.25rem;
+    }
+
+    .subtitle {
+      font-size: 0.875rem;
+      color: #64748b;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: #1e2230;
+      border: 1px solid #2d3348;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .card h2 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      color: #94a3b8;
+      margin-bottom: 0.4rem;
+    }
+
+    .file-drop {
+      border: 2px dashed #2d3348;
+      border-radius: 8px;
+      padding: 1.25rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .file-drop:hover, .file-drop.dragover {
+      border-color: #4f9cf9;
+      background: #1a2540;
+    }
+
+    .file-drop.loaded {
+      border-color: #22c55e;
+      background: #0f1f17;
+    }
+
+    #file-label {
+      font-size: 0.875rem;
+      color: #94a3b8;
+    }
+
+    .file-drop.loaded #file-label {
+      color: #22c55e;
+      font-weight: 600;
+    }
+
+    .file-hint {
+      font-size: 0.75rem;
+      color: #475569;
+    }
+
+    textarea, select, input[type="text"] {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid #2d3348;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 0.85rem;
+      padding: 0.6rem 0.75rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    textarea:focus, select:focus, input[type="text"]:focus {
+      border-color: #4f9cf9;
+    }
+
+    textarea {
+      font-family: "Fira Code", "Cascadia Code", monospace;
+      resize: vertical;
+      min-height: 140px;
+    }
+
+    select {
+      cursor: pointer;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .field { margin-bottom: 1rem; }
+
+    button {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: #4f9cf9;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.65rem 1.5rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+
+    button:hover { background: #3b82f6; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* Progress */
+    #status-card { display: none; }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    #status-label {
+      font-size: 0.875rem;
+      font-weight: 600;
+    }
+
+    #elapsed-label {
+      font-size: 0.8rem;
+      color: #64748b;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-track {
+      background: #0f1117;
+      border-radius: 99px;
+      height: 8px;
+      overflow: hidden;
+      margin-bottom: 0.75rem;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4f9cf9, #a78bfa);
+      border-radius: 99px;
+      transition: width 0.4s ease;
+      width: 0%;
+    }
+
+    #log {
+      font-size: 0.78rem;
+      color: #64748b;
+      font-family: monospace;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+
+    /* Results */
+    #results-card { display: none; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stat {
+      background: #0f1117;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      text-align: center;
+    }
+
+    .stat .val {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #f8fafc;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat .lbl {
+      font-size: 0.72rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 0.25rem;
+    }
+
+    .stat.highlight .val { color: #4f9cf9; }
+    .stat.warn .val { color: #f59e0b; }
+
+    .key-moments {
+      margin-bottom: 1.5rem;
+    }
+
+    .key-moments h3 {
+      font-size: 0.8rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.6rem;
+    }
+
+    .badge-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .badge {
+      background: #2d1f1f;
+      color: #f87171;
+      border: 1px solid #7f1d1d44;
+      border-radius: 99px;
+      padding: 0.2rem 0.65rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    .none-label {
+      font-size: 0.85rem;
+      color: #22c55e;
+    }
+
+    /* Table */
+    .table-wrap {
+      overflow-x: auto;
+      max-height: 420px;
+      overflow-y: auto;
+      border-radius: 8px;
+      border: 1px solid #2d3348;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #161924;
+      padding: 0.55rem 0.9rem;
+      text-align: left;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid #2d3348;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid #1e2230;
+      transition: background 0.1s;
+    }
+
+    tbody tr:hover { background: #1e2a40; }
+    tbody tr.blunder { background: #1f1515; }
+    tbody tr.blunder:hover { background: #2a1a1a; }
+
+    td {
+      padding: 0.45rem 0.9rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .player-b { color: #60a5fa; font-weight: 600; }
+    .player-w { color: #94a3b8; font-weight: 600; }
+
+    .bar-cell { width: 120px; }
+    .wr-bar-track {
+      background: #0f1117;
+      border-radius: 99px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .wr-bar-fill {
+      height: 100%;
+      background: #4f9cf9;
+      border-radius: 99px;
+    }
+
+    .blunder-tag {
+      display: inline-block;
+      background: #7f1d1d44;
+      color: #f87171;
+      border-radius: 4px;
+      padding: 0.1rem 0.45rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+      margin-left: 0.35rem;
+    }
+
+    .error-box {
+      background: #1f1515;
+      border: 1px solid #7f1d1d;
+      border-radius: 8px;
+      padding: 1rem;
+      color: #f87171;
+      font-size: 0.875rem;
+      display: none;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Go Review Engine</h1>
+<p class="subtitle">Test end-to-end game analysis — <code>api.sundaygolessons.com</code></p>
+
+<!-- Config -->
+<div class="card">
+  <h2>Configuration</h2>
+  <div class="row">
+    <div class="field">
+      <label for="api-key">API Key</label>
+      <input type="text" id="api-key" value="VMzQsr8b9hu7MKBKis_Ceusy43rgnU" />
+    </div>
+    <div class="field">
+      <label for="mode">Analysis Mode</label>
+      <select id="mode">
+        <option value="quick">Quick (~1 min, 32 visits)</option>
+        <option value="standard">Standard (~3 min, 100 visits)</option>
+        <option value="deep">Deep (~12 min, 400 visits)</option>
+      </select>
+    </div>
+  </div>
+  <div class="field">
+    <label>SGF Game Record</label>
+    <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4f9cf9" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <span id="file-label">Click to choose an SGF file</span>
+      <span class="file-hint">or drag and drop</span>
+      <input type="file" id="file-input" accept=".sgf" style="display:none" onchange="loadFile(this)" />
+    </div>
+    <textarea id="sgf" placeholder="…or paste SGF text directly here" style="margin-top:0.75rem; min-height:90px;"></textarea>
+  </div>
+  <button id="submit-btn" onclick="runReview()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    Run Review
+  </button>
+  <div class="error-box" id="error-box"></div>
+</div>
+
+<!-- Progress -->
+<div class="card" id="status-card">
+  <h2>Progress</h2>
+  <div class="status-row">
+    <span id="status-label">Queued…</span>
+    <span id="elapsed-label">0.0s elapsed</span>
+  </div>
+  <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+  <div id="log"></div>
+</div>
+
+<!-- Results -->
+<div class="card" id="results-card">
+  <h2>Results</h2>
+  <div class="summary-grid">
+    <div class="stat highlight">
+      <div class="val" id="s-total-time">—</div>
+      <div class="lbl">Total Time</div>
+    </div>
+    <div class="stat">
+      <div class="val" id="s-moves">—</div>
+      <div class="lbl">Moves</div>
+    </div>
+    <div class="stat">
+      <div class="val" id="s-final-wr">—</div>
+      <div class="lbl">Final Black WR</div>
+    </div>
+    <div class="stat warn">
+      <div class="val" id="s-blunders">—</div>
+      <div class="lbl">Blunders</div>
+    </div>
+  </div>
+
+  <div class="key-moments">
+    <h3>Key Moments (Blunders)</h3>
+    <div class="badge-list" id="key-moments-list"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Player</th>
+          <th>Move</th>
+          <th>Win Rate After</th>
+          <th style="width:120px">WR Bar</th>
+          <th>Score Lead</th>
+          <th>WR Swing</th>
+        </tr>
+      </thead>
+      <tbody id="moves-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const BASE = "https://api.sundaygolessons.com";
+
+let timerInterval = null;
+let startTime = null;
+
+function apiKey() { return document.getElementById("api-key").value.trim(); }
+function log(msg) {
+  const el = document.getElementById("log");
+  el.textContent = msg;
+}
+
+function setProgress(pct, label) {
+  document.getElementById("progress-fill").style.width = pct + "%";
+  document.getElementById("status-label").textContent = label;
+}
+
+function showError(msg) {
+  const el = document.getElementById("error-box");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function hideError() {
+  document.getElementById("error-box").style.display = "none";
+}
+
+function startTimer() {
+  startTime = Date.now();
+  timerInterval = setInterval(() => {
+    const s = ((Date.now() - startTime) / 1000).toFixed(1);
+    document.getElementById("elapsed-label").textContent = s + "s elapsed";
+  }, 100);
+}
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  return ((Date.now() - startTime) / 1000).toFixed(2);
+}
+
+async function runReview() {
+  hideError();
+  const sgf = document.getElementById("sgf").value.trim();
+  const mode = document.getElementById("mode").value;
+  const key = apiKey();
+
+  if (!sgf) { showError("Please load or paste an SGF game record."); return; }
+  if (!key) { showError("API key is required."); return; }
+
+  // API expects { sgf: string, mode: string }
+  const payload = { sgf: String(sgf), mode };
+
+  document.getElementById("submit-btn").disabled = true;
+  document.getElementById("status-card").style.display = "block";
+  document.getElementById("results-card").style.display = "none";
+  document.getElementById("moves-tbody").innerHTML = "";
+  setProgress(0, "Submitting…");
+  startTimer();
+
+  try {
+    // 1. Submit
+    const submitResp = await fetch(`${BASE}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": key },
+      body: JSON.stringify(payload),
+    });
+
+    if (!submitResp.ok) {
+      const txt = await submitResp.text();
+      throw new Error(`Submit failed (${submitResp.status}): ${txt}`);
+    }
+
+    const { job_id, queue_position, estimated_wait_seconds } = await submitResp.json();
+    log(`job_id: ${job_id} | queue position: ${queue_position} | est. wait: ${estimated_wait_seconds}s`);
+    setProgress(2, "Queued — waiting for worker…");
+
+    // 2. Poll
+    const result = await pollJob(job_id);
+    const elapsed = stopTimer();
+    document.getElementById("elapsed-label").textContent = elapsed + "s elapsed";
+    renderResults(result, elapsed);
+
+  } catch (e) {
+    stopTimer();
+    setProgress(0, "Error");
+    showError(e.message);
+    document.getElementById("submit-btn").disabled = false;
+  }
+}
+
+async function pollJob(jobId) {
+  const key = apiKey();
+  while (true) {
+    await sleep(1500);
+    const r = await fetch(`${BASE}/analyze/${jobId}`, {
+      headers: { "X-API-Key": key },
+    });
+    if (!r.ok) throw new Error(`Poll failed (${r.status})`);
+
+    const data = await r.json();
+    const p = data.progress ?? 0;
+    const pct = Math.round(p * 100);
+
+    if (data.status === "processing") {
+      setProgress(Math.max(pct, 3), `Analyzing… ${pct}%`);
+      log(`Received ${pct}% progress`);
+    } else if (data.status === "queued") {
+      setProgress(2, "Waiting in queue…");
+    } else if (data.status === "complete") {
+      setProgress(100, "Complete!");
+      return data;
+    } else if (data.status === "failed") {
+      const msg = data.error || "Analysis failed.";
+      throw new Error(msg);
+    }
+  }
+}
+
+function renderResults(data, elapsed) {
+  const winRates = data.win_rates ?? [];
+  const scoreLeads = data.score_leads ?? [];
+  const keyMoments = new Set(data.key_moments ?? []);
+  const moves = data.moves ?? [];
+  const numMoves = moves.length;
+
+  // Summary stats
+  document.getElementById("s-total-time").textContent = elapsed + "s";
+  document.getElementById("s-moves").textContent = numMoves;
+  const finalWR = winRates[winRates.length - 1];
+  document.getElementById("s-final-wr").textContent =
+    finalWR !== undefined ? (finalWR * 100).toFixed(1) + "%" : "—";
+  document.getElementById("s-blunders").textContent = keyMoments.size;
+
+  // Key moments badges
+  const km = document.getElementById("key-moments-list");
+  km.innerHTML = "";
+  if (keyMoments.size === 0) {
+    km.innerHTML = '<span class="none-label">No blunders detected</span>';
+  } else {
+    [...keyMoments].sort((a, b) => a - b).forEach(m => {
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      const isBlack = m % 2 === 1;
+      badge.textContent = `Move ${m} (${isBlack ? "B" : "W"})`;
+      km.appendChild(badge);
+    });
+  }
+
+  // Moves table
+  const tbody = document.getElementById("moves-tbody");
+  tbody.innerHTML = "";
+
+  for (let i = 1; i <= numMoves; i++) {
+    const move = moves[i - 1];
+    const isBlack = move[0] === "B";
+    const coord = move[1];
+    const wrBefore = winRates[i - 1] ?? 0.5;
+    const wrAfter = winRates[i] ?? 0.5;
+    const scoreBefore = scoreLeads[i - 1] ?? 0;
+    const scoreAfter = scoreLeads[i] ?? 0;
+    const swing = wrAfter - wrBefore;
+    const isBlunder = keyMoments.has(i);
+
+    const tr = document.createElement("tr");
+    if (isBlunder) tr.className = "blunder";
+
+    const wrPct = (wrAfter * 100).toFixed(1);
+    const swingSign = swing >= 0 ? "+" : "";
+    const swingColor = (isBlack && swing >= 0) || (!isBlack && swing <= 0)
+      ? "#22c55e" : "#f87171";
+
+    tr.innerHTML = `
+      <td>${i}${isBlunder ? '<span class="blunder-tag">!</span>' : ''}</td>
+      <td class="${isBlack ? 'player-b' : 'player-w'}">${isBlack ? "Black" : "White"}</td>
+      <td>${coord}</td>
+      <td>${wrPct}%</td>
+      <td class="bar-cell">
+        <div class="wr-bar-track">
+          <div class="wr-bar-fill" style="width:${wrPct}%"></div>
+        </div>
+      </td>
+      <td>${scoreAfter >= 0 ? "+" : ""}${scoreAfter.toFixed(2)}</td>
+      <td style="color:${swingColor}">${swingSign}${(swing * 100).toFixed(1)}%</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById("results-card").style.display = "block";
+  document.getElementById("submit-btn").disabled = false;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function loadFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    // UTF-8 string, strip BOM if present
+    let text = e.target.result;
+    document.getElementById("sgf").value = String(text).replace(/\uFEFF/g, "").trim();
+    const drop = document.getElementById("file-drop");
+    drop.classList.add("loaded");
+    document.getElementById("file-label").textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+  };
+  reader.readAsText(file, "UTF-8");
+}
+
+// Drag and drop
+const dropZone = document.getElementById("file-drop");
+dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+dropZone.addEventListener("drop", e => {
+  e.preventDefault();
+  dropZone.classList.remove("dragover");
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const input = document.getElementById("file-input");
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    loadFile(input);
+  }
+});
+</script>
+</body>
+</html>
