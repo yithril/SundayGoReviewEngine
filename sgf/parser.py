@@ -33,8 +33,14 @@ def parse_sgf(sgf_string: str | bytes) -> dict:
             row, col = move
             moves.append([color.upper(), sgf_coord_to_katago(row, col, board_size)])
 
+    root = game.get_root()
+    player_black = root.get("PB") or "Black"
+    player_white = root.get("PW") or "White"
+
     return {
         "board_size": board_size,
         "komi": float(komi),
         "moves": moves,
+        "player_black": player_black,
+        "player_white": player_white,
     }

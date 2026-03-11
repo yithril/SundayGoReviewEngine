@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Go Review Engine — Test</title>
+  <title>Go Review Engine — RunPod Test</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -340,22 +340,28 @@
 <body>
 
 <h1>Go Review Engine</h1>
-<p class="subtitle">Test end-to-end game analysis — <code>api.sundaygolessons.com</code></p>
+<p class="subtitle">Test end-to-end game analysis via RunPod serverless GPU</p>
 
 <!-- Config -->
 <div class="card">
   <h2>Configuration</h2>
   <div class="row">
     <div class="field">
-      <label for="api-key">API Key</label>
-      <input type="text" id="api-key" value="VMzQsr8b9hu7MKBKis_Ceusy43rgnU" />
+      <label for="endpoint-id">RunPod Endpoint ID</label>
+      <input type="text" id="endpoint-id" placeholder="e.g. abc1234xyz" />
     </div>
+    <div class="field">
+      <label for="api-key">RunPod API Key</label>
+      <input type="text" id="api-key" placeholder="Paste your RunPod API key" />
+    </div>
+  </div>
+  <div class="row">
     <div class="field">
       <label for="mode">Analysis Mode</label>
       <select id="mode">
-        <option value="quick">Quick (~1 min, 32 visits)</option>
-        <option value="standard">Standard (~3 min, 100 visits)</option>
-        <option value="deep">Deep (~12 min, 400 visits)</option>
+        <option value="quick">Quick (~45s on GPU, 32 visits)</option>
+        <option value="standard">Standard (~2.5 min, 100 visits)</option>
+        <option value="deep">Deep (~10 min, 400 visits)</option>
       </select>
     </div>
   </div>
@@ -433,12 +439,14 @@
 </div>
 
 <script>
-const BASE = "https://api.sundaygolessons.com";
-
 let timerInterval = null;
 let startTime = null;
 
-function apiKey() { return document.getElementById("api-key").value.trim(); }
+function apiKey()      { return document.getElementById("api-key").value.trim(); }
+function endpointId()  { return document.getElementById("endpoint-id").value.trim(); }
+function runpodBase()  { return `https://api.runpod.ai/v2/${endpointId()}`; }
+function authHeader()  { return { "Authorization": `Bearer ${apiKey()}`, "Content-Type": "application/json" }; }
+
 function log(msg) {
   const el = document.getElementById("log");
   el.textContent = msg;
@@ -477,12 +485,11 @@ async function runReview() {
   const sgf = document.getElementById("sgf").value.trim();
   const mode = document.getElementById("mode").value;
   const key = apiKey();
+  const epId = endpointId();
 
-  if (!sgf) { showError("Please load or paste an SGF game record."); return; }
-  if (!key) { showError("API key is required."); return; }
-
-  // API expects { sgf: string, mode: string }
-  const payload = { sgf: String(sgf), mode };
+  if (!sgf)  { showError("Please load or paste an SGF game record."); return; }
+  if (!key)  { showError("RunPod API key is required."); return; }
+  if (!epId) { showError("RunPod Endpoint ID is required."); return; }
 
   document.getElementById("submit-btn").disabled = true;
   document.getElementById("status-card").style.display = "block";
@@ -492,11 +499,11 @@ async function runReview() {
   startTimer();
 
   try {
-    // 1. Submit
-    const submitResp = await fetch(`${BASE}/analyze`, {
+    // 1. Submit to RunPod
+    const submitResp = await fetch(`${runpodBase()}/run`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": key },
-      body: JSON.stringify(payload),
+      headers: authHeader(),
+      body: JSON.stringify({ input: { sgf: String(sgf), mode } }),
     });
 
     if (!submitResp.ok) {
@@ -504,12 +511,12 @@ async function runReview() {
       throw new Error(`Submit failed (${submitResp.status}): ${txt}`);
     }
 
-    const { job_id, queue_position, estimated_wait_seconds } = await submitResp.json();
-    log(`job_id: ${job_id} | queue position: ${queue_position} | est. wait: ${estimated_wait_seconds}s`);
-    setProgress(2, "Queued — waiting for worker…");
+    const { id: jobId, status: initStatus } = await submitResp.json();
+    log(`job_id: ${jobId} | initial status: ${initStatus}`);
+    setProgress(2, "In queue — waiting for GPU worker…");
 
-    // 2. Poll
-    const result = await pollJob(job_id);
+    // 2. Poll RunPod status
+    const result = await pollJob(jobId);
     const elapsed = stopTimer();
     document.getElementById("elapsed-label").textContent = elapsed + "s elapsed";
     renderResults(result, elapsed);
@@ -523,29 +530,32 @@ async function runReview() {
 }
 
 async function pollJob(jobId) {
-  const key = apiKey();
   while (true) {
-    await sleep(1500);
-    const r = await fetch(`${BASE}/analyze/${jobId}`, {
-      headers: { "X-API-Key": key },
+    await sleep(2000);
+    const r = await fetch(`${runpodBase()}/status/${jobId}`, {
+      headers: authHeader(),
     });
     if (!r.ok) throw new Error(`Poll failed (${r.status})`);
 
     const data = await r.json();
-    const p = data.progress ?? 0;
-    const pct = Math.round(p * 100);
+    const status = data.status;
 
-    if (data.status === "processing") {
-      setProgress(Math.max(pct, 3), `Analyzing… ${pct}%`);
-      log(`Received ${pct}% progress`);
-    } else if (data.status === "queued") {
-      setProgress(2, "Waiting in queue…");
-    } else if (data.status === "complete") {
+    if (status === "IN_QUEUE") {
+      setProgress(2, "In queue — waiting for GPU worker…");
+      log(`Status: IN_QUEUE`);
+    } else if (status === "IN_PROGRESS") {
+      // RunPod doesn't give per-turn progress, animate bar slowly
+      const elapsed = (Date.now() - startTime) / 1000;
+      const rough = Math.min(95, Math.round((elapsed / 60) * 100));
+      setProgress(Math.max(rough, 5), `GPU analyzing… (${Math.round(elapsed)}s)`);
+      log(`Status: IN_PROGRESS`);
+    } else if (status === "COMPLETED") {
       setProgress(100, "Complete!");
-      return data;
-    } else if (data.status === "failed") {
-      const msg = data.error || "Analysis failed.";
-      throw new Error(msg);
+      return data.output;
+    } else if (status === "FAILED") {
+      throw new Error(data.error || "RunPod job failed.");
+    } else if (status === "CANCELLED" || status === "TIMED_OUT") {
+      throw new Error(`Job ${status.toLowerCase()}.`);
     }
   }
 }
