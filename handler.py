@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import time
@@ -82,7 +81,7 @@ async def _run(job_input: dict) -> dict:
     return report
 
 
-def handler(job: dict) -> dict:
+async def handler(job: dict) -> dict:
     inp   = job.get("input", {})
     email = inp.get("email", "")
 
@@ -90,7 +89,7 @@ def handler(job: dict) -> dict:
         raise ValueError("No SGF provided in input")
 
     try:
-        report = asyncio.run(_run(inp))
+        report = await _run(inp)
 
         job_meta = {
             "user_id": inp.get("user_id"),

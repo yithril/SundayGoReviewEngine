@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Go Review Engine — RunPod Test</title>
+  <title>Go Review Engine — Payload Builder</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -335,34 +335,87 @@
       display: none;
       margin-top: 1rem;
     }
+
+    /* Payload output */
+    #payload-card { display: none; }
+
+    .payload-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .copy-btn {
+      background: #1e2230;
+      border: 1px solid #2d3348;
+      color: #94a3b8;
+      border-radius: 6px;
+      padding: 0.35rem 0.85rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .copy-btn:hover { background: #2d3348; color: #e2e8f0; }
+    .copy-btn.copied { background: #14532d; color: #86efac; border-color: #166534; }
+
+    #payload-output {
+      background: #0f1117;
+      border: 1px solid #2d3348;
+      border-radius: 8px;
+      padding: 1rem;
+      font-family: "Fira Code", "Cascadia Code", monospace;
+      font-size: 0.82rem;
+      color: #a5f3fc;
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.6;
+    }
+
+    .hint {
+      font-size: 0.78rem;
+      color: #475569;
+      margin-top: 0.6rem;
+    }
   </style>
 </head>
 <body>
 
 <h1>Go Review Engine</h1>
-<p class="subtitle">Test end-to-end game analysis via RunPod serverless GPU</p>
+<p class="subtitle">Build a RunPod test payload — paste it into the endpoint's Request panel</p>
 
 <!-- Config -->
 <div class="card">
-  <h2>Configuration</h2>
+  <h2>Job Parameters</h2>
   <div class="row">
     <div class="field">
-      <label for="endpoint-id">RunPod Endpoint ID</label>
-      <input type="text" id="endpoint-id" placeholder="e.g. abc1234xyz" />
+      <label for="player-color">Player Color (who to review)</label>
+      <select id="player-color">
+        <option value="B">Black</option>
+        <option value="W">White</option>
+      </select>
     </div>
     <div class="field">
-      <label for="api-key">RunPod API Key</label>
-      <input type="text" id="api-key" placeholder="Paste your RunPod API key" />
+      <label for="rank-band">Rank Band</label>
+      <select id="rank-band">
+        <option value="novice">Novice</option>
+        <option value="beginner" selected>Beginner</option>
+        <option value="intermediate">Intermediate</option>
+        <option value="advanced">Advanced</option>
+        <option value="dan">Dan</option>
+      </select>
     </div>
   </div>
   <div class="row">
     <div class="field">
-      <label for="mode">Analysis Mode</label>
-      <select id="mode">
-        <option value="quick">Quick (~45s on GPU, 32 visits)</option>
-        <option value="standard">Standard (~2.5 min, 100 visits)</option>
-        <option value="deep">Deep (~10 min, 400 visits)</option>
-      </select>
+      <label for="email">Email Address</label>
+      <input type="text" id="email" placeholder="you@example.com" />
+    </div>
+    <div class="field">
+      <label for="user-id">User ID <span style="color:#475569;font-weight:400">(optional)</span></label>
+      <input type="text" id="user-id" placeholder="Supabase UUID or leave blank" />
     </div>
   </div>
   <div class="field">
@@ -375,88 +428,25 @@
     </div>
     <textarea id="sgf" placeholder="…or paste SGF text directly here" style="margin-top:0.75rem; min-height:90px;"></textarea>
   </div>
-  <button id="submit-btn" onclick="runReview()">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-    Run Review
+  <button id="submit-btn" onclick="buildPayload()">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+    Generate Payload
   </button>
   <div class="error-box" id="error-box"></div>
 </div>
 
-<!-- Progress -->
-<div class="card" id="status-card">
-  <h2>Progress</h2>
-  <div class="status-row">
-    <span id="status-label">Queued…</span>
-    <span id="elapsed-label">0.0s elapsed</span>
+<!-- Payload output -->
+<div class="card" id="payload-card">
+  <h2>RunPod Request Payload</h2>
+  <div class="payload-header">
+    <span style="font-size:0.85rem;color:#94a3b8">Paste this into the RunPod endpoint → Requests panel</span>
+    <button class="copy-btn" id="copy-btn" onclick="copyPayload()">Copy</button>
   </div>
-  <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-  <div id="log"></div>
-</div>
-
-<!-- Results -->
-<div class="card" id="results-card">
-  <h2>Results</h2>
-  <div class="summary-grid">
-    <div class="stat highlight">
-      <div class="val" id="s-total-time">—</div>
-      <div class="lbl">Total Time</div>
-    </div>
-    <div class="stat">
-      <div class="val" id="s-moves">—</div>
-      <div class="lbl">Moves</div>
-    </div>
-    <div class="stat">
-      <div class="val" id="s-final-wr">—</div>
-      <div class="lbl">Final Black WR</div>
-    </div>
-    <div class="stat warn">
-      <div class="val" id="s-blunders">—</div>
-      <div class="lbl">Blunders</div>
-    </div>
-  </div>
-
-  <div class="key-moments">
-    <h3>Key Moments (Blunders)</h3>
-    <div class="badge-list" id="key-moments-list"></div>
-  </div>
-
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Player</th>
-          <th>Move</th>
-          <th>Win Rate After</th>
-          <th style="width:120px">WR Bar</th>
-          <th>Score Lead</th>
-          <th>WR Swing</th>
-        </tr>
-      </thead>
-      <tbody id="moves-tbody"></tbody>
-    </table>
-  </div>
+  <div id="payload-output"></div>
+  <p class="hint">RunPod → your endpoint → "Requests" tab → paste into the input box → Submit</p>
 </div>
 
 <script>
-let timerInterval = null;
-let startTime = null;
-
-function apiKey()      { return document.getElementById("api-key").value.trim(); }
-function endpointId()  { return document.getElementById("endpoint-id").value.trim(); }
-function runpodBase()  { return `https://api.runpod.ai/v2/${endpointId()}`; }
-function authHeader()  { return { "Authorization": `Bearer ${apiKey()}`, "Content-Type": "application/json" }; }
-
-function log(msg) {
-  const el = document.getElementById("log");
-  el.textContent = msg;
-}
-
-function setProgress(pct, label) {
-  document.getElementById("progress-fill").style.width = pct + "%";
-  document.getElementById("status-label").textContent = label;
-}
-
 function showError(msg) {
   const el = document.getElementById("error-box");
   el.textContent = msg;
@@ -467,180 +457,58 @@ function hideError() {
   document.getElementById("error-box").style.display = "none";
 }
 
-function startTimer() {
-  startTime = Date.now();
-  timerInterval = setInterval(() => {
-    const s = ((Date.now() - startTime) / 1000).toFixed(1);
-    document.getElementById("elapsed-label").textContent = s + "s elapsed";
-  }, 100);
-}
-
-function stopTimer() {
-  clearInterval(timerInterval);
-  return ((Date.now() - startTime) / 1000).toFixed(2);
-}
-
-async function runReview() {
+function buildPayload() {
   hideError();
-  const sgf = document.getElementById("sgf").value.trim();
-  const mode = document.getElementById("mode").value;
-  const key = apiKey();
-  const epId = endpointId();
 
-  if (!sgf)  { showError("Please load or paste an SGF game record."); return; }
-  if (!key)  { showError("RunPod API key is required."); return; }
-  if (!epId) { showError("RunPod Endpoint ID is required."); return; }
+  const sgf         = document.getElementById("sgf").value.trim();
+  const playerColor = document.getElementById("player-color").value;
+  const rankBand    = document.getElementById("rank-band").value;
+  const email       = document.getElementById("email").value.trim();
+  const userId      = document.getElementById("user-id").value.trim() || null;
 
-  document.getElementById("submit-btn").disabled = true;
-  document.getElementById("status-card").style.display = "block";
-  document.getElementById("results-card").style.display = "none";
-  document.getElementById("moves-tbody").innerHTML = "";
-  setProgress(0, "Submitting…");
-  startTimer();
+  if (!sgf)   { showError("Please load or paste an SGF game record."); return; }
+  if (!email) { showError("Email address is required."); return; }
 
-  try {
-    // 1. Submit to RunPod
-    const submitResp = await fetch(`${runpodBase()}/run`, {
-      method: "POST",
-      headers: authHeader(),
-      body: JSON.stringify({ input: { sgf: String(sgf), mode } }),
-    });
-
-    if (!submitResp.ok) {
-      const txt = await submitResp.text();
-      throw new Error(`Submit failed (${submitResp.status}): ${txt}`);
+  const payload = {
+    input: {
+      sgf,
+      player_color: playerColor,
+      rank_band:    rankBand,
+      email,
+      user_id:      userId,
     }
+  };
 
-    const { id: jobId, status: initStatus } = await submitResp.json();
-    log(`job_id: ${jobId} | initial status: ${initStatus}`);
-    setProgress(2, "In queue — waiting for GPU worker…");
+  const formatted = JSON.stringify(payload, null, 2);
+  document.getElementById("payload-output").textContent = formatted;
+  document.getElementById("payload-card").style.display = "block";
 
-    // 2. Poll RunPod status
-    const result = await pollJob(jobId);
-    const elapsed = stopTimer();
-    document.getElementById("elapsed-label").textContent = elapsed + "s elapsed";
-    renderResults(result, elapsed);
+  // Reset copy button state
+  const btn = document.getElementById("copy-btn");
+  btn.textContent = "Copy";
+  btn.classList.remove("copied");
 
-  } catch (e) {
-    stopTimer();
-    setProgress(0, "Error");
-    showError(e.message);
-    document.getElementById("submit-btn").disabled = false;
-  }
+  document.getElementById("payload-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-async function pollJob(jobId) {
-  while (true) {
-    await sleep(2000);
-    const r = await fetch(`${runpodBase()}/status/${jobId}`, {
-      headers: authHeader(),
-    });
-    if (!r.ok) throw new Error(`Poll failed (${r.status})`);
-
-    const data = await r.json();
-    const status = data.status;
-
-    if (status === "IN_QUEUE") {
-      setProgress(2, "In queue — waiting for GPU worker…");
-      log(`Status: IN_QUEUE`);
-    } else if (status === "IN_PROGRESS") {
-      // RunPod doesn't give per-turn progress, animate bar slowly
-      const elapsed = (Date.now() - startTime) / 1000;
-      const rough = Math.min(95, Math.round((elapsed / 60) * 100));
-      setProgress(Math.max(rough, 5), `GPU analyzing… (${Math.round(elapsed)}s)`);
-      log(`Status: IN_PROGRESS`);
-    } else if (status === "COMPLETED") {
-      setProgress(100, "Complete!");
-      return data.output;
-    } else if (status === "FAILED") {
-      throw new Error(data.error || "RunPod job failed.");
-    } else if (status === "CANCELLED" || status === "TIMED_OUT") {
-      throw new Error(`Job ${status.toLowerCase()}.`);
-    }
-  }
+function copyPayload() {
+  const text = document.getElementById("payload-output").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById("copy-btn");
+    btn.textContent = "Copied!";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = "Copy";
+      btn.classList.remove("copied");
+    }, 2000);
+  });
 }
-
-function renderResults(data, elapsed) {
-  const winRates = data.win_rates ?? [];
-  const scoreLeads = data.score_leads ?? [];
-  const keyMoments = new Set(data.key_moments ?? []);
-  const moves = data.moves ?? [];
-  const numMoves = moves.length;
-
-  // Summary stats
-  document.getElementById("s-total-time").textContent = elapsed + "s";
-  document.getElementById("s-moves").textContent = numMoves;
-  const finalWR = winRates[winRates.length - 1];
-  document.getElementById("s-final-wr").textContent =
-    finalWR !== undefined ? (finalWR * 100).toFixed(1) + "%" : "—";
-  document.getElementById("s-blunders").textContent = keyMoments.size;
-
-  // Key moments badges
-  const km = document.getElementById("key-moments-list");
-  km.innerHTML = "";
-  if (keyMoments.size === 0) {
-    km.innerHTML = '<span class="none-label">No blunders detected</span>';
-  } else {
-    [...keyMoments].sort((a, b) => a - b).forEach(m => {
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      const isBlack = m % 2 === 1;
-      badge.textContent = `Move ${m} (${isBlack ? "B" : "W"})`;
-      km.appendChild(badge);
-    });
-  }
-
-  // Moves table
-  const tbody = document.getElementById("moves-tbody");
-  tbody.innerHTML = "";
-
-  for (let i = 1; i <= numMoves; i++) {
-    const move = moves[i - 1];
-    const isBlack = move[0] === "B";
-    const coord = move[1];
-    const wrBefore = winRates[i - 1] ?? 0.5;
-    const wrAfter = winRates[i] ?? 0.5;
-    const scoreBefore = scoreLeads[i - 1] ?? 0;
-    const scoreAfter = scoreLeads[i] ?? 0;
-    const swing = wrAfter - wrBefore;
-    const isBlunder = keyMoments.has(i);
-
-    const tr = document.createElement("tr");
-    if (isBlunder) tr.className = "blunder";
-
-    const wrPct = (wrAfter * 100).toFixed(1);
-    const swingSign = swing >= 0 ? "+" : "";
-    const swingColor = (isBlack && swing >= 0) || (!isBlack && swing <= 0)
-      ? "#22c55e" : "#f87171";
-
-    tr.innerHTML = `
-      <td>${i}${isBlunder ? '<span class="blunder-tag">!</span>' : ''}</td>
-      <td class="${isBlack ? 'player-b' : 'player-w'}">${isBlack ? "Black" : "White"}</td>
-      <td>${coord}</td>
-      <td>${wrPct}%</td>
-      <td class="bar-cell">
-        <div class="wr-bar-track">
-          <div class="wr-bar-fill" style="width:${wrPct}%"></div>
-        </div>
-      </td>
-      <td>${scoreAfter >= 0 ? "+" : ""}${scoreAfter.toFixed(2)}</td>
-      <td style="color:${swingColor}">${swingSign}${(swing * 100).toFixed(1)}%</td>
-    `;
-    tbody.appendChild(tr);
-  }
-
-  document.getElementById("results-card").style.display = "block";
-  document.getElementById("submit-btn").disabled = false;
-}
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function loadFile(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
-    // UTF-8 string, strip BOM if present
     let text = e.target.result;
     document.getElementById("sgf").value = String(text).replace(/\uFEFF/g, "").trim();
     const drop = document.getElementById("file-drop");
