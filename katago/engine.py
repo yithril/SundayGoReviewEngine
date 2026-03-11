@@ -21,10 +21,11 @@ class KataGoEngine:
         self._analyze_lock = asyncio.Lock()
         self._current_queue: Optional[asyncio.Queue] = None
         self._reader_task: Optional[asyncio.Task] = None
+        self._stderr_task: Optional[asyncio.Task] = None
         self._dead = False
 
     async def start(self):
-        logger.info("Starting KataGo...")
+        logger.info("Starting KataGo: binary=%r model=%r config=%r", self.binary, self.model, self.config)
         self.process = await asyncio.create_subprocess_exec(
             self.binary,
             "analysis",
@@ -32,14 +33,18 @@ class KataGoEngine:
             "-model", self.model,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
         self._dead = False
         self._current_queue = None
-        self._reader_task = asyncio.create_task(self._read_loop())
+        self._reader_task  = asyncio.create_task(self._read_loop())
+        self._stderr_task  = asyncio.create_task(self._stderr_log_loop())
         # Give KataGo time to load the model before accepting requests
         await asyncio.sleep(5)
-        logger.info("KataGo ready")
+        if self._dead:
+            logger.error("KataGo marked dead during startup — check stderr above")
+        else:
+            logger.info("KataGo ready")
 
     async def _read_loop(self):
         """Background task: read KataGo stdout and put responses into the current request's queue."""
@@ -68,6 +73,19 @@ class KataGoEngine:
         except Exception as e:
             logger.exception("Reader loop failed: %s", e)
             self._signal_dead()
+
+    async def _stderr_log_loop(self):
+        """Background task: stream KataGo stderr to the logger so startup errors are visible."""
+        try:
+            while self.process and self.process.stderr:
+                raw = await self.process.stderr.readline()
+                if not raw:
+                    break
+                logger.info("[katago stderr] %s", raw.decode().rstrip())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("stderr log loop error: %s", exc)
 
     def status(self) -> str:
         """Return 'running', 'dead', or 'stopped' for health checks."""
@@ -140,12 +158,13 @@ class KataGoEngine:
                 self._current_queue = None
 
     async def stop(self):
-        if self._reader_task and not self._reader_task.done():
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._reader_task, self._stderr_task):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         if self.process:
             try:
                 if self.process.returncode is None:

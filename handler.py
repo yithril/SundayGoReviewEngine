@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 import time
 
 import runpod
@@ -120,4 +121,27 @@ async def handler(job: dict) -> dict:
         raise
 
 
+def _startup_diagnostics():
+    for path in (KATAGO_BINARY, KATAGO_MODEL, KATAGO_CONFIG):
+        exists = os.path.exists(path)
+        size   = os.path.getsize(path) if exists else None
+        logger.info("[startup] %s  exists=%s  size=%s", path, exists, size)
+
+    try:
+        result = subprocess.run(
+            [KATAGO_BINARY, "version"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        logger.info("[startup] katago version rc=%s", result.returncode)
+        if result.stdout:
+            logger.info("[startup] katago version stdout: %s", result.stdout.strip())
+        if result.stderr:
+            logger.info("[startup] katago version stderr: %s", result.stderr.strip())
+    except Exception as exc:
+        logger.error("[startup] katago version probe failed: %r", exc)
+
+
+_startup_diagnostics()
 runpod.serverless.start({"handler": handler})
