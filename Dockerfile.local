@@ -1,0 +1,57 @@
+# ── LOCAL TESTING ONLY — no GPU required ─────────────────────────────────────
+# Uses the KataGo Eigen (CPU) build so you can run on any machine including
+# Windows via Docker Desktop.  Much slower than GPU but tests the full pipeline:
+# SGF parsing → KataGo comms → report building → Supabase → email.
+#
+# Build:  docker build -f Dockerfile.local -t sunday-go-review-local .
+# Run:    docker run --rm -p 8000:8000 --env-file .env sunday-go-review-local
+#
+# The RunPod SDK reads test_input.json from /app on startup in local mode.
+# It is copied in below — no need to mount anything.
+
+# Ubuntu 20.04 — the OS KataGo v1.15.3 was compiled on.
+# Provides libssl.so.1.1 (libssl1.1) and libzip.so.5 (libzip5) natively.
+# Ubuntu 22.04 dropped both; that's literally why KataGo added AppImages in v1.16.0.
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    wget unzip python3 python3-pip \
+    libssl1.1 libzip5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# KataGo v1.15.3 Eigen — CPU only, no CUDA/cuDNN required
+RUN wget -q \
+      "https://github.com/lightvector/KataGo/releases/download/v1.15.3/katago-v1.15.3-eigen-linux-x64.zip" \
+      -O /tmp/katago.zip \
+  && unzip /tmp/katago.zip -d /opt/katago-bin \
+  && chmod +x /opt/katago-bin/katago \
+  && ln -sf /opt/katago-bin/katago /usr/local/bin/katago \
+  && rm /tmp/katago.zip
+
+# Same model as production — filename matches what .env specifies
+RUN mkdir -p /opt/katago \
+  && wget -q \
+       "https://media.katagotraining.org/uploaded/networks/models/kata1/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz" \
+       -O /opt/katago/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# CPU analysis.cfg — no CUDA settings, fewer threads to avoid thrashing
+COPY katago/analysis.cfg /opt/katago/analysis.cfg
+
+COPY handler.py          ./
+COPY katago/             ./katago/
+COPY sgf/                ./sgf/
+COPY review/             ./review/
+COPY storage/            ./storage/
+COPY mailer/             ./mailer/
+
+# RunPod SDK reads this file in local mode instead of waiting for a real job
+COPY test_job.json       ./test_input.json
+
+CMD ["python3", "handler.py"]

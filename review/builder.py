@@ -136,7 +136,8 @@ def build_report(
             label = "neutral"
 
         move_quality.append(label)
-        counts[label] += 1
+        if label != "neutral":  # only count the reviewed player's moves
+            counts[label] += 1
 
     # --- Simple game summary ---
     player_label = "Black" if player_color == "B" else "White"

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import subprocess
@@ -141,6 +143,19 @@ def _startup_diagnostics():
             logger.info("[startup] katago version stderr: %s", result.stderr.strip())
     except Exception as exc:
         logger.error("[startup] katago version probe failed: %r", exc)
+
+    try:
+        ldd = subprocess.run(
+            ["ldd", KATAGO_BINARY],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        logger.info("[startup] ldd rc=%s\n%s", ldd.returncode, ldd.stdout.strip())
+        if ldd.stderr:
+            logger.info("[startup] ldd stderr: %s", ldd.stderr.strip())
+    except Exception as exc:
+        logger.error("[startup] ldd failed: %r", exc)
 
 
 _startup_diagnostics()
