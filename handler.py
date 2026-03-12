@@ -7,11 +7,12 @@ import time
 
 import runpod
 
-from sgf.parser     import parse_sgf
-from katago.engine  import KataGoEngine
-from review.builder import build_report
-from storage.client import save_report
-from mailer.sender  import send_success_email, send_failure_email
+from sgf.parser        import parse_sgf, _sanitize_komi
+from katago.engine     import KataGoEngine
+from katago.evaluator  import evaluate_position
+from review.builder    import build_report
+from storage.client    import save_report
+from mailer.sender     import send_success_email, send_failure_email
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,8 +85,33 @@ async def _run(job_input: dict) -> dict:
     return report
 
 
+async def _evaluate(job_input: dict) -> dict:
+    moves      = job_input.get("moves", [])
+    board_size = int(job_input.get("board_size", 19))
+    komi       = _sanitize_komi(job_input.get("komi", 6.5))
+    visits     = int(job_input.get("visits", 200))
+
+    logger.info("Evaluate: %d moves, board=%d, komi=%.1f, visits=%d",
+                len(moves), board_size, komi, visits)
+
+    engine = KataGoEngine(KATAGO_BINARY, KATAGO_MODEL, KATAGO_CONFIG)
+    await engine.start()
+    try:
+        result = await evaluate_position(engine, moves, board_size, komi, visits)
+    finally:
+        await engine.stop()
+
+    return result
+
+
 async def handler(job: dict) -> dict:
-    inp   = job.get("input", {})
+    inp      = job.get("input", {})
+    job_type = inp.get("job_type", "review")
+
+    if job_type == "evaluate":
+        return await _evaluate(inp)
+
+    # --- Default: full game review ---
     email = inp.get("email", "")
 
     if not inp.get("sgf"):

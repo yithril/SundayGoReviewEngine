@@ -36,6 +36,7 @@ class KataGoEngine:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=256 * 1024 * 1024,  # 256 MB — KataGo lines are large at high visits
         )
         self._dead = False
         self._current_queue = None

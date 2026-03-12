@@ -1,54 +1,68 @@
 from __future__ import annotations
 
-# Score-loss thresholds (points of territory vs the AI's best move).
+from review.analysis import (
+    generate_story,
+    identify_skills,
+    find_strengths,
+    find_improvements,
+    find_highlights,
+)
+
+# Score-loss thresholds (points of territory vs the AI's best move) per rank band.
+# Tuple order: (excellent, great, good, inaccuracy, mistake).
 # Loss is always >= 0 from the reviewed player's perspective.
-LOSS_EXCELLENT   = 0.2
-LOSS_GREAT       = 0.6
-LOSS_GOOD        = 1.2
-LOSS_INACCURACY  = 4.0
-LOSS_MISTAKE     = 10.0
+# Beginners get more leniency; dan players are held to a tighter standard.
+LOSS_THRESHOLDS: dict[str, tuple[float, float, float, float, float]] = {
+    "novice":       (3.0,  6.0,  12.0, 20.0, 30.0),
+    "beginner":     (2.0,  4.0,   8.0, 15.0, 25.0),
+    "intermediate": (1.0,  2.0,   4.0, 10.0, 18.0),
+    "advanced":     (0.5,  1.2,   2.5,  7.0, 15.0),
+    "dan":          (0.2,  0.6,   1.5,  5.0, 12.0),
+}
+# Fallback to beginner thresholds for any unknown rank band
+_DEFAULT_THRESHOLDS = LOSS_THRESHOLDS["beginner"]
 
 QUALITY_LABELS = ["excellent", "great", "good", "inaccuracy", "mistake", "blunder"]
 
 
-def _classify(score_loss: float) -> str:
+def _classify(score_loss: float, rank_band: str) -> str:
     """Classify a move by how many points were lost vs the AI's best move."""
-    if score_loss <= LOSS_EXCELLENT:
+    t = LOSS_THRESHOLDS.get(rank_band, _DEFAULT_THRESHOLDS)
+    excellent, great, good, inaccuracy, mistake = t
+    if score_loss <= excellent:
         return "excellent"
-    if score_loss <= LOSS_GREAT:
+    if score_loss <= great:
         return "great"
-    if score_loss <= LOSS_GOOD:
+    if score_loss <= good:
         return "good"
-    if score_loss <= LOSS_INACCURACY:
+    if score_loss <= inaccuracy:
         return "inaccuracy"
-    if score_loss <= LOSS_MISTAKE:
+    if score_loss <= mistake:
         return "mistake"
     return "blunder"
 
 
-def _score_loss(resp: dict, player_color: str) -> float:
+def _score_loss(prev_resp: dict, curr_resp: dict, player_color: str) -> float:
     """
     Compute how many points the played move lost vs the AI's best suggestion.
 
-    KataGo's scoreLead is always from Black's perspective (positive = Black ahead).
-    We convert to the reviewed player's perspective so that loss is always >= 0
-    when the played move was worse than the best move.
+    Both scoreLead values are from Black's perspective (reportAnalysisWinratesAs=BLACK).
 
-    best_score   = moveInfos[0].scoreLead  (what AI would have played)
-    played_score = rootInfo.scoreLead      (position after the move was played)
+    best_score   = prev_resp moveInfos[0].scoreLead  — score if KataGo played at turn N-1
+    played_score = curr_resp rootInfo.scoreLead       — score after the player's actual move
     """
-    move_infos = resp.get("moveInfos", [])
+    move_infos = prev_resp.get("moveInfos", [])
     if not move_infos:
         return 0.0
 
-    best_score_black   = move_infos[0].get("scoreLead", 0.0)
-    played_score_black = resp.get("rootInfo", {}).get("scoreLead", 0.0)
+    best_score   = move_infos[0].get("scoreLead", 0.0)
+    played_score = curr_resp.get("rootInfo", {}).get("scoreLead", 0.0)
 
     if player_color == "B":
-        loss = best_score_black - played_score_black
+        loss = best_score - played_score
     else:
         # White benefits from lower (more negative) Black scores
-        loss = played_score_black - best_score_black
+        loss = played_score - best_score
 
     return max(0.0, loss)
 
@@ -79,6 +93,7 @@ def build_report(
 
     player_black = game.get("player_black", "Black")
     player_white = game.get("player_white", "White")
+    game_date    = game.get("game_date", "")
 
     if player_color == "B":
         player_name   = player_black
@@ -87,7 +102,7 @@ def build_report(
         player_name   = player_white
         opponent_name = player_black
 
-    # --- Build win rate / score lead arrays (Black's perspective, one entry per turn 0..N) ---
+    # --- Build win rate / score lead arrays (reviewed player's perspective, one entry per turn 0..N) ---
     win_rates: list[float] = []
     score_leads: list[float] = []
 
@@ -104,18 +119,15 @@ def build_report(
         raw_wr    = root.get("winrate", 0.5)
         raw_score = root.get("scoreLead", 0.0)
 
-        # KataGo always reports from the perspective of the player to move.
-        # Even turns (0, 2, 4, ...) = Black to move → raw_wr is already Black's.
-        # Odd turns (1, 3, 5, ...)  = White to move → flip.
-        if turn % 2 == 0:
-            black_wr    = raw_wr
-            black_score = raw_score
-        else:
-            black_wr    = 1.0 - raw_wr
-            black_score = -raw_score
+        # reportAnalysisWinratesAs = BLACK in analysis.cfg means KataGo always
+        # returns winrate and scoreLead from Black's perspective — no parity flip
+        # needed. Convert once to the reviewed player's perspective so the frontend
+        # can plot directly (up = good for you).
+        player_wr    = raw_wr    if player_color == "B" else 1.0 - raw_wr
+        player_score = raw_score if player_color == "B" else -raw_score
 
-        win_rates.append(round(black_wr, 4))
-        score_leads.append(round(black_score, 2))
+        win_rates.append(round(player_wr, 4))
+        score_leads.append(round(player_score, 2))
 
     # --- Classify each move ---
     move_quality: list[str] = []
@@ -126,10 +138,11 @@ def build_report(
 
         # Only classify the reviewed player's moves; opponent moves are "neutral"
         if color == player_color:
-            resp = katago_responses.get(move_num)
-            if resp is not None:
-                loss  = _score_loss(resp, player_color)
-                label = _classify(loss)
+            prev_resp = katago_responses.get(move_num - 1)
+            curr_resp = katago_responses.get(move_num)
+            if prev_resp is not None and curr_resp is not None:
+                loss  = _score_loss(prev_resp, curr_resp, player_color)
+                label = _classify(loss, rank_band)
             else:
                 label = "excellent"  # missing response — assume no loss
         else:
@@ -153,17 +166,24 @@ def build_report(
     else:
         summary = f"You played {total_moves} moves as {player_label}."
 
-    final_wr = win_rates[-1] if win_rates else 0.5
-    player_final = final_wr if player_color == "B" else 1.0 - final_wr
+    player_final = win_rates[-1] if win_rates else 0.5
     if player_final > 0.55:
         summary += " The position was generally in your favor."
     elif player_final < 0.45:
         summary += " The engine suggests the position was challenging throughout."
 
+    # --- Enrichment sections (stubs in review/analysis.py) ---
+    story            = generate_story(game, move_quality, katago_responses, player_color)
+    skills_used      = identify_skills(game, move_quality, katago_responses, player_color)
+    did_well         = find_strengths(game, move_quality, katago_responses, player_color)
+    needs_improvement= find_improvements(game, move_quality, katago_responses, player_color)
+    match_highlights = find_highlights(game, move_quality, katago_responses, player_color)
+
     return {
         "player_color":         player_color,
         "player_name":          player_name,
         "opponent_name":        opponent_name,
+        "game_date":            game_date,
         "rank_band":            rank_band,
         "board_size":           board_size,
         "total_moves":          total_moves,
@@ -173,10 +193,10 @@ def build_report(
         "move_quality_counts":  counts,
         "katago_seconds":       round(katago_seconds, 2),
         "total_seconds":        round(total_seconds, 2),
-        # Skeleton sections — populated in a future iteration
         "game_summary":         summary,
-        "skills_used":          [],
-        "did_well":             [],
-        "needs_improvement":    [],
-        "story":                "",
+        "story":                story,
+        "skills_used":          skills_used,
+        "did_well":             did_well,
+        "needs_improvement":    needs_improvement,
+        "match_highlights":     match_highlights,
     }
