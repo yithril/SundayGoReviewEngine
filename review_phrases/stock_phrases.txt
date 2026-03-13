@@ -1,0 +1,383 @@
+Opening phase
+Good opening
+
+Variants:
+
+“The opening was solid, with good attention to the corners and sides.”
+
+“You handled the opening well and established a stable position.”
+
+“The early moves were balanced and followed good opening principles.”
+
+Slightly slow opening
+
+“The opening was generally calm, though a few moves were slightly slow.”
+
+“The early game developed normally, but there were opportunities to play more actively.”
+
+Poor opening / direction mistake
+
+“The opening had some direction issues, giving your opponent early momentum.”
+
+“A few early moves went in the wrong direction and allowed your opponent to take the initiative.”
+
+Used Standard Opening:
+
+High Chinese Opening
+
+Trigger example:
+highChineseDetected
+
+Variants
+
+“You chose the High Chinese opening, building influence on the upper side while keeping the corner flexible.”
+
+“The High Chinese formation emphasizes outside influence and prepares for a large framework.”
+
+“This High Chinese structure aims to develop strong central influence rather than immediate territory.”
+
+Slight commentary variant
+
+“The High Chinese formation often leads to large-scale fighting if the opponent invades.”
+
+Low Chinese Opening
+
+Trigger example:
+lowChineseDetected
+
+Variants
+
+“You played the Low Chinese opening, balancing territory and influence.”
+
+“The Low Chinese formation aims to secure the corner while maintaining outside development.”
+
+“This structure keeps the position solid while still allowing for expansion on the side.”
+
+Optional commentary
+
+“The Low Chinese opening usually leads to a calmer territorial game than the High Chinese.”
+
+Mini Chinese Opening
+
+Trigger example:
+miniChineseDetected
+
+Variants
+
+“You chose the Mini Chinese opening, a flexible formation that combines influence with territorial potential.”
+
+“The Mini Chinese structure pressures the corner while preparing side expansion.”
+
+“This Mini Chinese setup encourages active play and early fighting.”
+
+Optional commentary
+
+“The Mini Chinese often invites an invasion that leads to a dynamic middle game.”
+
+Kobayashi Opening
+
+Trigger example:
+kobayashiDetected
+
+Variants
+
+“You used the Kobayashi opening, aiming to build a large side framework.”
+
+“The Kobayashi formation puts pressure on the corner while expanding influence along the side.”
+
+“This structure encourages fast development and large-scale side territory.”
+
+Optional commentary
+
+“The Kobayashi often leads to invasions that spark early fighting.”
+
+Sanrensei
+
+Trigger example:
+sanrenseiDetected
+
+Variants
+
+“You played Sanrensei, placing three star points along one side to build strong influence.”
+
+“The Sanrensei formation emphasizes central power and large frameworks.”
+
+“Sanrensei aims to control the center and create opportunities for a large moyo.”
+
+Optional commentary
+
+“This opening frequently leads to large-scale influence battles in the center.”
+
+Neutral description if opponent plays it
+
+Sometimes you want the sentence to work for either player.
+
+Example template:
+
+“The game began with a High Chinese formation.”
+
+“A Mini Chinese structure appeared early in the opening.”
+
+“The position developed into a Kobayashi-style framework.”
+
+Moyo creation
+You create a moyo
+
+“You began building a moyo on the {side} side of the board.”
+
+“This sequence helped establish a large framework in the {region}.”
+
+“Your stones worked together to form a potential moyo.”
+
+Strong moyo
+
+“This formed a large moyo that could have become significant territory.”
+
+“At this point your framework was becoming quite large.”
+
+Moyo reduced
+
+“Your opponent reduced the moyo before it could become secure territory.”
+
+“The framework was invaded and reduced, limiting its potential.”
+
+“The moyo was pressured and eventually shrunk.”
+
+Invasion
+Standard invasion
+
+“Your opponent invaded the moyo, starting a fight inside your framework.”
+
+“This move entered your sphere of influence and challenged your territory.”
+
+“An invasion here put immediate pressure on your position.”
+
+Deep invasion
+
+“The invasion was deep and forced a complicated fight.”
+
+“This move penetrated deeply into the moyo.”
+
+Too deep
+
+“The invasion may have gone too deep and became difficult to handle.”
+
+“This invasion overreached slightly and allowed the opponent to counterattack.”
+
+Reduction (lighter attack)
+
+“Your opponent reduced the framework from the outside.”
+
+“This move chipped away at the moyo without committing to a full invasion.”
+
+“A reduction move here weakened the potential territory.”
+
+Fighting / cuts
+Fight begins
+
+“This move created a cut and started a local fight.”
+
+“The position became sharp as the groups separated.”
+
+Tactical pressure
+
+“Both sides had weak groups that required careful handling.”
+
+“The fight here determined the direction of the game.”
+
+Large group danger
+Weak group
+
+“One of your groups became weak and required attention.”
+
+“The group here lacked eye space and came under attack.”
+
+Group dies
+
+“Eventually the group could not escape and was captured.”
+
+“The group was surrounded and died, creating a large swing.”
+
+Turning point
+
+When score swing large:
+
+“This sequence was a turning point in the game.”
+
+“The balance shifted here after a significant mistake.”
+
+“From this point the game began to favor {player}.”
+
+Bad direction of play
+
+“This move appears to go in the wrong direction.”
+
+“The direction of play here strengthened your opponent.”
+
+“A move elsewhere may have been more effective.”
+
+Endgame
+Clean endgame
+
+“The game then transitioned into the endgame.”
+
+“Both sides settled remaining territory in the endgame.”
+
+Large endgame mistake
+
+“A late mistake in the endgame affected the final result.”
+
+“An important endgame opportunity was missed.”
+
+Game conclusion
+Close game
+
+“Overall the game remained competitive until the end.”
+
+“The result came down to a few key moments.”
+
+Clear win
+
+“After the major fight was resolved, the result was mostly decided.”
+
+“From there the lead was maintained to the end.”
+
+Knight’s Move
+
+Trigger example:
+knightMovePlayed
+
+Positive
+
+“You used a knight’s move, a flexible shape that develops quickly.”
+
+“The knight’s move extends your position while keeping your stones connected.”
+
+“This knight’s move helps your stones work together while expanding outward.”
+
+If attacked
+
+“The knight’s move can sometimes be attacked, so be careful about the cutting points.”
+
+Bamboo Joint
+
+Trigger example:
+bambooJointCreated
+
+Positive
+
+“You formed a bamboo joint, which is a very strong and stable connection.”
+
+“The bamboo joint securely connects your stones and is difficult to cut.”
+
+“This shape protects your stones and prevents cutting.”
+
+This is a great beginner teaching moment.
+
+Solid Connection
+
+Trigger example:
+solidConnection
+
+“You connected your stones solidly, keeping the group safe.”
+
+“This move strengthens the connection between your stones.”
+
+“Connecting here removes the cutting point.”
+
+Broken Shape
+
+Trigger example:
+brokenShapeDetected
+
+“This move created a broken shape, leaving your stones separated.”
+
+“Your stones became disconnected here, which allowed your opponent to attack.”
+
+“Because the stones were not connected, the group became vulnerable.”
+
+Empty Triangle
+
+Trigger example:
+emptyTriangle
+
+“This move formed an empty triangle, which is usually inefficient.”
+
+“The empty triangle shape is heavy and slow.”
+
+“This shape uses too many stones to do the same job.”
+
+Self Atari
+
+Trigger example:
+selfAtari
+
+“This move placed your stone in atari, where it could be captured.”
+
+“Be careful not to play moves that immediately lose liberties.”
+
+“This move reduced your own liberties and allowed your opponent to capture.”
+
+Capture
+
+Trigger example:
+capture
+
+Positive
+
+“You captured the stones here and gained a clear advantage.”
+
+“This move successfully captured your opponent’s stones.”
+
+“The capture removed a weak group.”
+
+Stone in Atari
+
+Trigger example:
+atariCreated
+
+“You placed your opponent’s stone in atari, threatening capture.”
+
+“This move forced your opponent to respond.”
+
+“Putting the stone in atari gave you the initiative.”
+
+Weak Group
+
+Trigger example:
+weakGroupDetected
+
+“This group became weak and needed more liberties.”
+
+“Your stones here were short on liberties and came under attack.”
+
+“The group needed to connect or make eyes to stay alive.”
+
+Capture Warning
+
+Trigger example:
+groupCaptured
+
+“This group was surrounded and captured.”
+
+“Because the stones were not connected, they were eventually captured.”
+
+“The group ran out of liberties and died.”
+
+Beginner Direction Advice
+
+You can also include very simple advice lines:
+
+“Connecting your stones is usually safer than extending too far.”
+
+“Try to avoid leaving cutting points between your stones.”
+
+“Strong shapes like the bamboo joint are very reliable.”
+
+Example paragraph (30–20 kyu)
+
+Example output:
+
+The opening developed normally, and you used a knight’s move to extend your position. Later you formed a bamboo joint, which is a strong shape that keeps your stones connected. However, one group became weak because the stones were separated. Your opponent placed the group in atari and eventually captured it. Try to focus on keeping your stones connected and avoiding broken shapes.
+
+This is exactly the kind of feedback beginners understand.

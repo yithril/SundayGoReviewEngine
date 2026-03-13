@@ -1,70 +1,58 @@
 from __future__ import annotations
 
-from review.analysis import (
-    generate_story,
-    identify_skills,
-    find_strengths,
-    find_improvements,
-    find_highlights,
-)
-
-# Score-loss thresholds (points of territory vs the AI's best move) per rank band.
-# Tuple order: (excellent, great, good, inaccuracy, mistake).
-# Loss is always >= 0 from the reviewed player's perspective.
-# Beginners get more leniency; dan players are held to a tighter standard.
-LOSS_THRESHOLDS: dict[str, tuple[float, float, float, float, float]] = {
-    "novice":       (3.0,  6.0,  12.0, 20.0, 30.0),
-    "beginner":     (2.0,  4.0,   8.0, 15.0, 25.0),
-    "intermediate": (1.0,  2.0,   4.0, 10.0, 18.0),
-    "advanced":     (0.5,  1.2,   2.5,  7.0, 15.0),
-    "dan":          (0.2,  0.6,   1.5,  5.0, 12.0),
-}
-# Fallback to beginner thresholds for any unknown rank band
-_DEFAULT_THRESHOLDS = LOSS_THRESHOLDS["beginner"]
+from detection.pipeline import run_detection
 
 QUALITY_LABELS = ["excellent", "great", "good", "inaccuracy", "mistake", "blunder"]
 
 
-def _classify(score_loss: float, rank_band: str) -> str:
-    """Classify a move by how many points were lost vs the AI's best move."""
-    t = LOSS_THRESHOLDS.get(rank_band, _DEFAULT_THRESHOLDS)
-    excellent, great, good, inaccuracy, mistake = t
-    if score_loss <= excellent:
-        return "excellent"
-    if score_loss <= great:
-        return "great"
-    if score_loss <= good:
-        return "good"
-    if score_loss <= inaccuracy:
-        return "inaccuracy"
-    if score_loss <= mistake:
+def _classify(point_loss: float) -> str:
+    """Classify a move by fixed point-loss thresholds."""
+    if point_loss > 6.0:
+        return "blunder"
+    if point_loss > 3.0:
         return "mistake"
-    return "blunder"
+    if point_loss > 1.5:
+        return "inaccuracy"
+    if point_loss > 0.8:
+        return "good"
+    if point_loss > 0.3:
+        return "great"
+    return "excellent"
 
 
-def _score_loss(prev_resp: dict, curr_resp: dict, player_color: str) -> float:
-    """
-    Compute how many points the played move lost vs the AI's best suggestion.
+def _to_player_perspective(score_black: float, player_color: str) -> float:
+    """Convert Black-perspective scoreLead to reviewed-player perspective."""
+    return score_black if player_color == "B" else -score_black
 
-    Both scoreLead values are from Black's perspective (reportAnalysisWinratesAs=BLACK).
 
-    best_score   = prev_resp moveInfos[0].scoreLead  — score if KataGo played at turn N-1
-    played_score = curr_resp rootInfo.scoreLead       — score after the player's actual move
+def _point_loss(prev_resp: dict, curr_resp: dict, player_color: str) -> float:
+    """Compute max(0, bestScore - playedScore) in reviewed-player perspective.
+
+    bestScore   = score if KataGo's top move from prev turn were played
+    playedScore = score after the actual move at current turn
     """
     move_infos = prev_resp.get("moveInfos", [])
     if not move_infos:
         return 0.0
 
-    best_score   = move_infos[0].get("scoreLead", 0.0)
-    played_score = curr_resp.get("rootInfo", {}).get("scoreLead", 0.0)
+    best_black = float(move_infos[0].get("scoreLead", 0.0))
+    played_black = float(curr_resp.get("rootInfo", {}).get("scoreLead", 0.0))
 
-    if player_color == "B":
-        loss = best_score - played_score
-    else:
-        # White benefits from lower (more negative) Black scores
-        loss = played_score - best_score
+    best_score = _to_player_perspective(best_black, player_color)
+    played_score = _to_player_perspective(played_black, player_color)
+    return max(0.0, best_score - played_score)
 
-    return max(0.0, loss)
+
+def _label_for_player_move(prev_resp: dict | None, curr_resp: dict | None, player_color: str) -> str:
+    """Return quality label for a reviewed-player move with explicit fallback."""
+    if prev_resp is None or curr_resp is None:
+        return "excellent"
+    return _classify(_point_loss(prev_resp, curr_resp, player_color))
+
+
+def _score_loss(prev_resp: dict, curr_resp: dict, player_color: str) -> float:
+    """Backward-compatible alias for point loss used by tests/internal callers."""
+    return _point_loss(prev_resp, curr_resp, player_color)
 
 
 def build_report(
@@ -140,11 +128,7 @@ def build_report(
         if color == player_color:
             prev_resp = katago_responses.get(move_num - 1)
             curr_resp = katago_responses.get(move_num)
-            if prev_resp is not None and curr_resp is not None:
-                loss  = _score_loss(prev_resp, curr_resp, player_color)
-                label = _classify(loss, rank_band)
-            else:
-                label = "excellent"  # missing response — assume no loss
+            label = _label_for_player_move(prev_resp, curr_resp, player_color)
         else:
             label = "neutral"
 
@@ -172,12 +156,14 @@ def build_report(
     elif player_final < 0.45:
         summary += " The engine suggests the position was challenging throughout."
 
-    # --- Enrichment sections (stubs in review/analysis.py) ---
-    story            = generate_story(game, move_quality, katago_responses, player_color)
-    skills_used      = identify_skills(game, move_quality, katago_responses, player_color)
-    did_well         = find_strengths(game, move_quality, katago_responses, player_color)
-    needs_improvement= find_improvements(game, move_quality, katago_responses, player_color)
-    match_highlights = find_highlights(game, move_quality, katago_responses, player_color)
+    # --- Enrichment sections (detection pipeline) ---
+    narrative = run_detection(
+        game=game,
+        katago_responses=katago_responses,
+        player_color=player_color,
+        rank_band=rank_band,
+        move_quality=move_quality,
+    )
 
     return {
         "player_color":         player_color,
@@ -194,9 +180,5 @@ def build_report(
         "katago_seconds":       round(katago_seconds, 2),
         "total_seconds":        round(total_seconds, 2),
         "game_summary":         summary,
-        "story":                story,
-        "skills_used":          skills_used,
-        "did_well":             did_well,
-        "needs_improvement":    needs_improvement,
-        "match_highlights":     match_highlights,
+        **narrative.to_report_fields(),
     }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sgfmill.sgf
 
-# KataGo uses A-T skipping I
+# KataGo / GTP uses A-T skipping I for columns
 COLS = "ABCDEFGHJKLMNOPQRST"
 
 _KATAGO_KOMI_DEFAULT = 6.5
@@ -21,9 +21,59 @@ def _sanitize_komi(komi: float) -> float:
     return _KATAGO_KOMI_DEFAULT
 
 
+# ---------------------------------------------------------------------------
+# Coordinate conversion helpers — single source of truth
+# ---------------------------------------------------------------------------
+# Three coordinate systems in play:
+#   SGF text  e.g. "pd"     top-left origin; x=col, y=row from top (a=0)
+#   sgfmill   e.g. (15, 15) bottom-left origin; (row_from_bottom, col), 0-based
+#   GTP/Go    e.g. "Q16"    cols A-T (no I), rows 1-19 from bottom
+#
+# sgfmill's get_move() returns (row_from_bottom, col) — it has already
+# converted SGF's top-origin y into a bottom-origin row internally.
+# ---------------------------------------------------------------------------
+
+
+def sgfmill_point_to_gtp(row: int, col: int) -> str:
+    """Convert an sgfmill (row_from_bottom, col) point to GTP notation.
+
+    Examples:
+        sgfmill_point_to_gtp(15, 15) -> "Q16"
+        sgfmill_point_to_gtp(3,  3)  -> "D4"
+    """
+    return f"{COLS[col]}{row + 1}"
+
+
 def sgf_coord_to_katago(row: int, col: int, board_size: int) -> str:
-    """Convert sgfmill (row, col) zero-indexed from top-left to KataGo coord like 'D4'."""
-    return f"{COLS[col]}{board_size - row}"
+    """Convert an sgfmill (row_from_bottom, col) point to KataGo/GTP notation.
+
+    Delegates to sgfmill_point_to_gtp; the board_size parameter is kept for
+    API compatibility but is not used.
+    """
+    return sgfmill_point_to_gtp(row, col)
+
+
+def gtp_to_col_row(move: str) -> tuple[int, int] | None:
+    """Parse a GTP move string to (col, row_from_bottom), both 0-based.
+
+    Returns None for pass moves or unrecognisable strings.
+
+    Examples:
+        gtp_to_col_row("Q16") -> (15, 15)
+        gtp_to_col_row("D4")  -> (3,  3)
+        gtp_to_col_row("pass")-> None
+    """
+    if not move or move.upper() == "PASS" or len(move) < 2:
+        return None
+    col_char = move[0].upper()
+    if col_char not in COLS:
+        return None
+    try:
+        col = COLS.index(col_char)
+        row = int(move[1:]) - 1
+    except (ValueError, IndexError):
+        return None
+    return col, row
 
 
 def parse_sgf(sgf_string: str | bytes) -> dict:
@@ -50,9 +100,19 @@ def parse_sgf(sgf_string: str | bytes) -> dict:
             moves.append([color.upper(), sgf_coord_to_katago(row, col, board_size)])
 
     root = game.get_root()
-    player_black = root.get("PB") or "Black"
-    player_white = root.get("PW") or "White"
-    game_date    = root.get("DT") or ""
+    # sgfmill's get() raises KeyError for absent optional properties.
+    try:
+        player_black = root.get("PB") or "Black"
+    except KeyError:
+        player_black = "Black"
+    try:
+        player_white = root.get("PW") or "White"
+    except KeyError:
+        player_white = "White"
+    try:
+        game_date = root.get("DT") or ""
+    except KeyError:
+        game_date = ""
 
     return {
         "board_size":   board_size,

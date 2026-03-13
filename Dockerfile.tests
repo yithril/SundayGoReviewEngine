@@ -1,0 +1,67 @@
+# ── LOCAL TEST ENVIRONMENT — CPU only, no GPU required ───────────────────────
+# Uses the KataGo Eigen (CPU) build.  Includes all code needed to run the
+# integration test suite and the Layer 1 demo script.
+#
+# Kept separate from Dockerfile.local (which tests the RunPod handler) so
+# the two workflows don't interfere.
+#
+# Build (once — downloads KataGo binary + model, takes a few minutes):
+#   docker build -f Dockerfile.tests -t sunday-go-tests .
+#
+# Or via docker-compose (recommended):
+#   docker-compose build
+#   docker-compose run demo
+#   docker-compose run tests
+
+FROM ubuntu:20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    wget unzip python3 python3-pip \
+    libssl1.1 libzip5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── KataGo v1.15.3 Eigen — CPU only ──────────────────────────────────────────
+# Same version as Dockerfile.local so behaviour is consistent.
+# cudaDeviceToUse in analysis.cfg is silently ignored by the Eigen build.
+RUN wget -q \
+      "https://github.com/lightvector/KataGo/releases/download/v1.15.3/katago-v1.15.3-eigen-linux-x64.zip" \
+      -O /tmp/katago.zip \
+  && unzip /tmp/katago.zip -d /opt/katago-bin \
+  && chmod +x /opt/katago-bin/katago \
+  && ln -sf /opt/katago-bin/katago /usr/local/bin/katago \
+  && rm /tmp/katago.zip
+
+# ── KataGo model (b18 — fast, matches production) ────────────────────────────
+RUN mkdir -p /opt/katago \
+  && wget -q \
+       "https://media.katagotraining.org/uploaded/networks/models/kata1/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz" \
+       -O /opt/katago/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz
+
+# ── Python deps ───────────────────────────────────────────────────────────────
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# ── App + test code ───────────────────────────────────────────────────────────
+COPY katago/        ./katago/
+COPY sgf/           ./sgf/
+COPY review/        ./review/
+COPY storage/       ./storage/
+COPY mailer/        ./mailer/
+COPY detection/     ./detection/
+COPY game/          ./game/
+COPY tests/         ./tests/
+COPY scripts/       ./scripts/
+COPY sgf_examples/  ./sgf_examples/
+COPY pytest.ini     ./
+
+# KataGo config (cudaDeviceToUse is silently ignored by the Eigen build)
+COPY katago/analysis.cfg /opt/katago/analysis.cfg
+
+# Environment — baked in for the container so no .env files needed
+ENV KATAGO_BINARY=/usr/local/bin/katago
+ENV KATAGO_MODEL=/opt/katago/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz
+ENV KATAGO_CONFIG=/opt/katago/analysis.cfg

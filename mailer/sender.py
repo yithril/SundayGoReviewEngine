@@ -180,34 +180,35 @@ def _quality_table_rows(counts: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Go Skills stars
+# Go Skills points
 # ---------------------------------------------------------------------------
 
-def _skill_stars(stars: int, max_stars: int = 5) -> str:
-    filled = "★" * min(stars, max_stars)
-    empty  = "☆" * (max_stars - min(stars, max_stars))
+def _skill_points(points: int, max_points: int = 10) -> str:
+    clamped = max(0, min(points, max_points))
+    filled = "●" * clamped
+    empty = "○" * (max_points - clamped)
     return (
-        f'<span style="color:#0ac254;font-size:16px;letter-spacing:1px">{filled}</span>'
-        f'<span style="color:#ccd8d6;font-size:16px;letter-spacing:1px">{empty}</span>'
+        f'<span style="color:#0ac254;font-size:12px;letter-spacing:1px">{filled}</span>'
+        f'<span style="color:#ccd8d6;font-size:12px;letter-spacing:1px">{empty}</span>'
     )
 
 
 def _skills_rows(skills: list[dict]) -> str:
     if not skills:
         skills = [
-            {"name": "Coming soon…", "stars": 0},
-            {"name": "Coming soon…", "stars": 0},
-            {"name": "Coming soon…", "stars": 0},
+            {"name": "Coming soon…", "points": 0},
+            {"name": "Coming soon…", "points": 0},
+            {"name": "Coming soon…", "points": 0},
         ]
         placeholder = True
     else:
         placeholder = False
 
     rows = [
-        # Fix column widths: name expands, stars column stays fixed
+        # Fix column widths: name expands, points column stays fixed
         '<tr>'
         '<td style="width:auto"></td>'
-        '<td style="width:90px"></td>'
+        '<td style="width:140px"></td>'
         '</tr>'
     ]
     for skill in skills:
@@ -221,7 +222,9 @@ def _skills_rows(skills: list[dict]) -> str:
             f'<td style="padding:5px 14px 5px 0;vertical-align:middle;{name_style}">'
             f'{skill["name"]}</td>'
             f'<td style="padding:5px 0;vertical-align:middle;white-space:nowrap">'
-            f'{_skill_stars(skill["stars"])}</td>'
+            f'{_skill_points(int(skill.get("points", 0)))}'
+            f'<span style="color:#6b7280;font-size:11px;padding-left:6px">{int(skill.get("points", 0))}/10</span>'
+            f'</td>'
             f'</tr>'
         )
     return "".join(rows)

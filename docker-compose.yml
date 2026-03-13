@@ -1,0 +1,27 @@
+services:
+
+  # Run the Layer 1 demo against a real game and print move-by-move trigger output.
+  #   docker-compose run demo
+  #   docker-compose run demo --sgf sgf_examples/real_games/novice/85012574-291-biztorx-Oroton.sgf
+  demo:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    command: python3 scripts/run_layer1_demo.py --visits 5 --moves 50
+
+  # Run the full integration test suite (requires KataGo — already in the image).
+  #   docker-compose run tests
+  #   docker-compose run tests -k test_capture   # run one test module
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    command: pytest tests/integration/ -m integration -v
+
+  # Run only the unit tests (no KataGo needed — fast).
+  #   docker-compose run unit
+  unit:
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    command: pytest tests/detection/ -v
